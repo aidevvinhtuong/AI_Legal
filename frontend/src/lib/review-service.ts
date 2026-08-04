@@ -1,0 +1,963 @@
+import { api, USE_MOCK } from "@/lib/api";
+import {
+  loadFormLists,
+  type CodeLabelOption,
+  type DiscountOption,
+} from "@/lib/form-lists-store";
+import {
+  CONTRACT_TYPES,
+  MOCK_USERS,
+  buildAttachments,
+  createMockReview,
+  getReview,
+  loadReviews,
+  nextDocumentId,
+  resolveTemplateUrlForContractType,
+  upsertReview,
+} from "@/lib/mock-data";
+import type {
+  ChatMessage,
+  ContractReview,
+  ContractTypeConfig,
+  ContractVersionAction,
+  ContractVersionEntry,
+  DocumentCategory,
+  DocumentIntakeMeta,
+  EditableField,
+  SignRecipient,
+  StructuredFeedbackItem,
+  UserRole,
+  UserSession,
+} from "@/lib/types";
+
+function resolveContractType(id: string): ContractTypeConfig | undefined {
+  const fromStore = loadFormLists().contractTypes.find((t) => t.id === id);
+  return fromStore || CONTRACT_TYPES.find((t) => t.id === id);
+}
+import {
+  buildDefaultContractInsight,
+  bumpContractInsight,
+  computeFairnessScore,
+  emptyContractInsight,
+} from "@/lib/contract-insight";
+import {
+  ReuploadValidationError,
+  formatIssueMessage,
+  validateReuploadFromBuffers,
+  type FieldStructureIssue,
+  type ReuploadValidationResult,
+} from "@/lib/reupload-validation";
+
+function delay(ms = 400) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+export function getSession(): UserSession | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem("user");
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as UserSession;
+  } catch {
+    return null;
+  }
+}
+
+export function setSession(user: UserSession) {
+  localStorage.setItem("token", user.token);
+  localStorage.setItem("user", JSON.stringify(user));
+}
+
+export function clearSession() {
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+}
+
+export async function loginAs(role: UserRole): Promise<UserSession> {
+  if (USE_MOCK) {
+    await delay(200);
+    const user = MOCK_USERS[role];
+    setSession(user);
+    return user;
+  }
+  const user = (await api.post("/api/auth/login", { role })) as UserSession;
+  setSession(user);
+  return user;
+}
+
+export async function listContractTypes(): Promise<ContractTypeConfig[]> {
+  if (USE_MOCK) {
+    await delay(150);
+    return loadFormLists().contractTypes.filter((t) => t.status === "published");
+  }
+  return api.get("/api/contract-types");
+}
+
+export async function listDocumentCategories(): Promise<DocumentCategory[]> {
+  if (USE_MOCK) {
+    await delay(100);
+    return loadFormLists().documentCategories;
+  }
+  return api.get("/api/document-categories");
+}
+
+export async function listDiscountOptions(): Promise<DiscountOption[]> {
+  if (USE_MOCK) {
+    await delay(50);
+    return loadFormLists().discountOptions;
+  }
+  return api.get("/api/discount-options");
+}
+
+export async function listBusinessEntities(): Promise<CodeLabelOption[]> {
+  if (USE_MOCK) {
+    await delay(50);
+    return loadFormLists().businessEntities;
+  }
+  return api.get("/api/business-entities");
+}
+
+export async function listContractBases(): Promise<CodeLabelOption[]> {
+  if (USE_MOCK) {
+    await delay(50);
+    return loadFormLists().contractBases;
+  }
+  return api.get("/api/contract-bases");
+}
+
+export async function listContractNames(): Promise<CodeLabelOption[]> {
+  if (USE_MOCK) {
+    await delay(50);
+    return loadFormLists().contractNames;
+  }
+  return api.get("/api/contract-names");
+}
+
+export async function listReviews(): Promise<ContractReview[]> {
+  if (USE_MOCK) {
+    await delay(200);
+    const session = getSession();
+    const all = loadReviews();
+    if (session?.role === "purchasing") {
+      return all.filter((r) => r.ownerName.includes(session.name) || true);
+    }
+    return all;
+  }
+  return api.get("/api/reviews");
+}
+
+export async function getReviewById(id: string): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(150);
+    const review = getReview(id);
+    if (!review) throw new Error("Không tìm thấy yêu cầu review");
+    return review;
+  }
+  return api.get(`/api/reviews/${id}`);
+}
+
+export async function createReview(input: {
+  contractTypeId: string;
+  title: string;
+  prompt?: string;
+  /** Hợp đồng review — đúng 1 file .docx */
+  files: File[];
+  /** Hợp đồng tham khảo — nhiều file (tuỳ chọn) */
+  referenceFiles?: File[];
+  intake: DocumentIntakeMeta;
+}): Promise<ContractReview> {
+  if (!input.files.length) {
+    throw new Error("Cần tải lên một file .docx (Hợp đồng review)");
+  }
+  if (input.files.length > 1) {
+    throw new Error("Hợp đồng review chỉ được upload 1 file");
+  }
+  const primary = input.files[0];
+  const references = input.referenceFiles || [];
+  const allNames = [primary.name, ...references.map((f) => f.name)];
+
+  if (USE_MOCK) {
+    await delay(500);
+    const type = resolveContractType(input.contractTypeId);
+    if (!type) throw new Error("Loại hợp đồng không hợp lệ");
+
+    if (type.requireTemplateMatch) {
+      if (/ncc_sai_template/i.test(primary.name)) {
+        throw new Error(
+          "File không khớp template chuẩn của Legal cho Hợp đồng khung. Vui lòng dùng đúng mẫu."
+        );
+      }
+    }
+
+    const session = getSession();
+    const valueNum = Number(String(input.intake.contractValue).replace(/\D/g, "")) || 0;
+    const refNote =
+      references.length > 0
+        ? ` · ${references.length} file tham khảo`
+        : "";
+    const existing = loadReviews();
+    const review = createMockReview({
+      id: `rev_${Date.now()}`,
+      documentId: nextDocumentId(existing),
+      code: input.intake.documentNumber || undefined,
+      title:
+        input.intake.documentName ||
+        input.title ||
+        primary.name.replace(/\.docx$/i, ""),
+      contractTypeId: type.id,
+      contractTypeLabel: type.label,
+      group: type.group,
+      status: "queued",
+      queuePosition: 2,
+      fileName: primary.name,
+      fileNames: allNames,
+      attachments: buildAttachments({
+        fileName: primary.name,
+        fileNames: allNames,
+        originalDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
+        reviewedDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
+      }),
+      originalDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
+      reviewedDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
+      prompt: input.prompt || "",
+      ownerName: session ? `${session.name} (Purchasing)` : "Purchasing",
+      confidence: 0,
+      proposals: [],
+      intake: input.intake,
+      fields: [
+        {
+          id: "contract_value",
+          label: "Giá trị hợp đồng (VND)",
+          type: "number",
+          value: String(valueNum || input.intake.contractValue),
+          locked: false,
+        },
+        {
+          id: "payment_days",
+          label: "Thời hạn thanh toán (ngày)",
+          type: "number",
+          value: "60",
+          locked: false,
+        },
+        {
+          id: "effective_date",
+          label: "Ngày ký",
+          type: "date",
+          value: input.intake.signingDate || "",
+          locked: false,
+        },
+        {
+          id: "has_discount",
+          label: "Hợp đồng có chiết khấu",
+          type: "select",
+          value: input.intake.hasDiscount === "yes" ? "Có" : "Không",
+          options: ["Có", "Không"],
+          locked: false,
+        },
+      ],
+      messages: [
+        {
+          id: `m_${Date.now()}`,
+          role: "assistant",
+          content: `Yêu cầu đã vào Processing Queue (1 file review${refNote}). Local LLM sẽ xử lý sớm.`,
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      reviewedText: "",
+    });
+    upsertReview(review);
+    return review;
+  }
+
+  const form = new FormData();
+  form.append("contract_type_id", input.contractTypeId);
+  form.append("title", input.title);
+  form.append("prompt", input.prompt || "");
+  form.append("intake", JSON.stringify(input.intake));
+  form.append("files", primary);
+  references.forEach((f) => form.append("reference_files", f));
+  return api.post("/api/reviews", form);
+}
+
+export async function advanceQueue(id: string): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(800);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    if (review.status === "queued") {
+      review.status = "processing";
+      review.queuePosition = 0;
+      review.updatedAt = new Date().toISOString();
+      upsertReview(review);
+      return review;
+    }
+    if (review.status === "processing") {
+      const confidence = review.confidence || 72;
+      const done = createMockReview({
+        ...review,
+        status: "reviewed",
+        confidence,
+        queuePosition: undefined,
+        reviewedText: review.reviewedText || review.originalText,
+        updatedAt: new Date().toISOString(),
+        contractInsight: buildDefaultContractInsight({
+          contractId: review.id,
+          contractName: review.title,
+          aiConfidenceScore: confidence,
+          lastUpdatedAt: new Date().toISOString(),
+        }),
+      });
+      upsertReview(done);
+      return done;
+    }
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/advance`);
+}
+
+/** Cập nhật thông tin hợp đồng (intake) — dùng khi nháp / trước khi gửi Legal. */
+export async function updateReviewIntake(
+  id: string,
+  input: {
+    intake: DocumentIntakeMeta;
+    contractTypeId: string;
+    prompt?: string;
+  }
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(250);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const type = resolveContractType(input.contractTypeId);
+    if (!type) throw new Error("Loại hợp đồng không hợp lệ");
+
+    review.intake = input.intake;
+    review.contractTypeId = type.id;
+    review.contractTypeLabel = type.label;
+    review.group = type.group;
+    review.title = input.intake.documentName || review.title;
+    if (input.intake.documentNumber) {
+      review.code = input.intake.documentNumber;
+    }
+    if (input.prompt !== undefined) {
+      review.prompt = input.prompt;
+    }
+    const valueNum =
+      Number(String(input.intake.contractValue).replace(/\D/g, "")) || 0;
+    review.fields = review.fields.map((f) => {
+      if (f.id === "contract_value") {
+        return { ...f, value: String(valueNum || input.intake.contractValue) };
+      }
+      if (f.id === "effective_date") {
+        return { ...f, value: input.intake.signingDate || "" };
+      }
+      if (f.id === "has_discount") {
+        return {
+          ...f,
+          value: input.intake.hasDiscount === "yes" ? "Có" : "Không",
+        };
+      }
+      return f;
+    });
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.patch(`/api/reviews/${id}/intake`, input);
+}
+
+/** Nháp → đưa vào Processing Queue để AI review. */
+export async function submitDraftToQueue(id: string): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(300);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    if (review.status !== "draft") {
+      throw new Error("Chỉ gửi AI review từ trạng thái nháp");
+    }
+    review.status = "queued";
+    review.queuePosition = 1;
+    review.updatedAt = new Date().toISOString();
+    if (!review.reviewedText) {
+      review.reviewedText = review.originalText;
+    }
+    review.messages = [
+      ...review.messages,
+      {
+        id: `m_q_${Date.now()}`,
+        role: "assistant",
+        content: "Đã nhận bản nháp — đưa vào Processing Queue.",
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/submit-queue`);
+}
+
+export async function sendChat(
+  id: string,
+  content: string
+): Promise<{ review: ContractReview; reply: ChatMessage }> {
+  if (USE_MOCK) {
+    await delay(600);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const userMsg: ChatMessage = {
+      id: `m_u_${Date.now()}`,
+      role: "user",
+      content,
+      createdAt: new Date().toISOString(),
+    };
+    const reply: ChatMessage = {
+      id: `m_a_${Date.now()}`,
+      role: "assistant",
+      content: `Đã cập nhật đề xuất theo yêu cầu: "${content.slice(0, 120)}". Diff cột 3 đã được làm mới (mock).`,
+      createdAt: new Date().toISOString(),
+    };
+    review.messages = [...review.messages, userMsg, reply];
+    review.reviewedText =
+      review.reviewedText +
+      `\n\n[Chat update] ${content.slice(0, 80)}`;
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return { review, reply };
+  }
+  return api.post(`/api/reviews/${id}/chat`, { content });
+}
+
+export async function updateProposalStatus(
+  id: string,
+  proposalId: string,
+  status: "accepted" | "undone"
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(200);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const proposal = review.proposals.find((p) => p.id === proposalId);
+    if (!proposal || proposal.kind !== "A") {
+      throw new Error("Chỉ Accept/Undo được đề xuất Loại A (field mở)");
+    }
+
+    let text = review.reviewedText || review.originalText;
+    if (status === "accepted") {
+      // Ensure proposed text is present (already in reviewed for mock)
+      if (proposal.originalText && text.includes(proposal.originalText)) {
+        text = text.replace(proposal.originalText, proposal.proposedText);
+      }
+    } else {
+      // Undo → revert proposed back to original in reviewed text
+      if (proposal.proposedText && text.includes(proposal.proposedText)) {
+        text = text.replace(proposal.proposedText, proposal.originalText);
+      }
+    }
+
+    review.reviewedText = text;
+    review.proposals = review.proposals.map((p) =>
+      p.id === proposalId
+        ? { ...p, status: status === "accepted" ? "accepted" : "pending" }
+        : p
+    );
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/proposals/${proposalId}`, { status });
+}
+
+export async function acceptAllProposals(id: string): Promise<ContractReview> {
+  if (USE_MOCK) {
+    let review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const pending = review.proposals.filter(
+      (p) => p.kind === "A" && p.status === "pending"
+    );
+    for (const p of pending) {
+      review = await updateProposalStatus(id, p.id, "accepted");
+    }
+    return getReview(id)!;
+  }
+  return api.post(`/api/reviews/${id}/proposals/accept-all`);
+}
+
+export async function undoAllProposals(id: string): Promise<ContractReview> {
+  if (USE_MOCK) {
+    let review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const accepted = review.proposals.filter(
+      (p) => p.kind === "A" && p.status === "accepted"
+    );
+    for (const p of accepted) {
+      review = await updateProposalStatus(id, p.id, "undone");
+    }
+    return getReview(id)!;
+  }
+  return api.post(`/api/reviews/${id}/proposals/undo-all`);
+}
+
+/** Cập nhật toàn bộ nội dung reviewed sau khi user sửa trực tiếp trên Word embed. */
+export async function updateReviewedDocument(
+  id: string,
+  plainText: string
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(200);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    review.reviewedText = plainText;
+    review.updatedAt = new Date().toISOString();
+    review.confidence = Math.min(95, (review.confidence || 70) + 1);
+    review.confidenceDetail = {
+      ...review.confidenceDetail,
+      score: review.confidence,
+      recentFieldChanges: [
+        {
+          fieldId: "document_body",
+          label: "Nội dung tài liệu (chỉnh trên Word)",
+          oldValue: "(trước chỉnh sửa)",
+          newValue: plainText.slice(0, 120),
+        },
+      ],
+    };
+    review.contractInsight = bumpContractInsight(
+      review.contractInsight ||
+        buildDefaultContractInsight({
+          contractId: review.id,
+          contractName: review.title,
+          aiConfidenceScore: review.confidence,
+        }),
+      { aiConfidenceScore: review.confidence }
+    );
+    upsertReview(review);
+    return review;
+  }
+  return api.patch(`/api/reviews/${id}/document`, { text: plainText });
+}
+
+/** Cập nhật nội dung một section (vùng mở) sau khi user gõ trực tiếp trên Word pane. */
+export async function updateReviewedSection(
+  id: string,
+  sectionIndex: number,
+  nextBody: string
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(150);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const blocks = (review.reviewedText || review.originalText)
+      .trim()
+      .split(/\n\s*\n/);
+    if (sectionIndex < 0 || sectionIndex >= blocks.length) {
+      throw new Error("Section không hợp lệ");
+    }
+    const lines = blocks[sectionIndex].split("\n");
+    const first = lines[0] || "";
+    const isHeading = /^ĐIỀU\s+\d+/i.test(first);
+    blocks[sectionIndex] = isHeading && lines.length > 1
+      ? `${first}\n${nextBody}`
+      : nextBody;
+    review.reviewedText = blocks.join("\n\n");
+    review.updatedAt = new Date().toISOString();
+    // Soft bump confidence when user edits open fields
+    review.confidence = Math.min(95, (review.confidence || 70) + 1);
+    review.confidenceDetail = {
+      ...review.confidenceDetail,
+      score: review.confidence,
+      recentFieldChanges: [
+        {
+          fieldId: `section_${sectionIndex}`,
+          label: `Đoạn ${sectionIndex + 1}`,
+          oldValue: "(trước chỉnh sửa)",
+          newValue: nextBody.slice(0, 80),
+        },
+      ],
+    };
+    review.contractInsight = bumpContractInsight(
+      review.contractInsight ||
+        buildDefaultContractInsight({
+          contractId: review.id,
+          contractName: review.title,
+          aiConfidenceScore: review.confidence,
+        }),
+      { aiConfidenceScore: review.confidence }
+    );
+    upsertReview(review);
+    return review;
+  }
+  return api.patch(`/api/reviews/${id}/sections/${sectionIndex}`, {
+    body: nextBody,
+  });
+}
+
+export async function saveFields(
+  id: string,
+  fields: EditableField[]
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(300);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+
+    const merged = fields.map((f) => {
+      const old = review.fields.find((x) => x.id === f.id);
+      if (old?.locked || f.locked) {
+        return { ...f, locked: true, value: old?.value ?? f.value };
+      }
+      return f;
+    });
+
+    const changes = merged
+      .map((f) => {
+        const old = review.fields.find((x) => x.id === f.id);
+        if (!old || old.value === f.value || old.locked) return null;
+        return {
+          fieldId: f.id,
+          label: f.label,
+          oldValue: old.value,
+          newValue: f.value,
+        };
+      })
+      .filter(Boolean) as NonNullable<
+      ContractReview["confidenceDetail"]["recentFieldChanges"][number]
+    >[];
+
+    review.fields = merged;
+    const value = Number(fields.find((f) => f.id === "contract_value")?.value || 0);
+    let score = 72;
+    let warning: string | undefined;
+    if (value > 5_000_000_000) {
+      score = 58;
+      warning =
+        "Giá trị hợp đồng vượt hạn mức Director — theo Approval Matrix cần cấp BOD (cảnh báo, không routing).";
+    } else if (value > 1_000_000_000) {
+      score = 72;
+    } else {
+      score = 85;
+    }
+    review.confidence = score;
+    review.confidenceDetail = {
+      ...review.confidenceDetail,
+      score,
+      recentFieldChanges: changes,
+      approvalMatrixWarning: warning,
+      cons: warning
+        ? [...review.confidenceDetail.cons.filter((c) => !c.includes("hạn mức")), warning]
+        : review.confidenceDetail.cons.filter((c) => !c.includes("hạn mức")),
+    };
+    const baseInsight =
+      review.contractInsight ||
+      buildDefaultContractInsight({
+        contractId: review.id,
+        contractName: review.title,
+        aiConfidenceScore: score,
+      });
+    review.contractInsight = bumpContractInsight(baseInsight, {
+      aiConfidenceScore: score,
+      extraWarning: warning
+        ? {
+            id: "WN-MATRIX",
+            title: "Vượt hạn mức Approval Matrix",
+            description: warning,
+            severity: "high",
+            relatedFieldId: "contract_value",
+          }
+        : undefined,
+    });
+    if (!warning) {
+      review.contractInsight = {
+        ...review.contractInsight,
+        groups: {
+          ...review.contractInsight.groups,
+          warnings: review.contractInsight.groups.warnings.filter(
+            (w) => w.id !== "WN-MATRIX"
+          ),
+        },
+      };
+      review.contractInsight = {
+        ...review.contractInsight,
+        fairnessScore: computeFairnessScore(review.contractInsight.groups),
+      };
+    }
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.put(`/api/reviews/${id}/fields`, { fields });
+}
+
+export async function assignMarker(
+  id: string,
+  recipientId: string,
+  positionLabel: string
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(200);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    review.recipients = review.recipients.map((r) => {
+      if (r.id !== recipientId) return r;
+      return {
+        ...r,
+        marker: {
+          id: `${r.markerType}_${r.id}`,
+          type: r.markerType,
+          height: 40,
+          positionLabel,
+        },
+      };
+    });
+    const allAssigned = review.recipients.every((r) => r.marker);
+    review.status = allAssigned ? "awaiting_markers" : review.status;
+    if (allAssigned && review.status === "reviewed") {
+      review.status = "awaiting_markers";
+    }
+    if (allAssigned) review.status = "awaiting_markers";
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/markers`, { recipientId, positionLabel });
+}
+
+export function validateMarkers(recipients: SignRecipient[]): string[] {
+  const errors: string[] = [];
+  const ids = new Set<string>();
+  const digitalByRecipient = new Map<string, number>();
+
+  for (const r of recipients) {
+    if (!r.marker) {
+      errors.push(`Thiếu marker cho: ${r.name}`);
+      continue;
+    }
+    if (ids.has(r.marker.id)) {
+      errors.push(`Trùng marker id: ${r.marker.id}`);
+    }
+    ids.add(r.marker.id);
+
+    if (r.marker.type === "ds") {
+      digitalByRecipient.set(
+        r.id,
+        (digitalByRecipient.get(r.id) || 0) + 1
+      );
+    }
+    if (r.marker.type === "ds" && r.role === "witness") {
+      errors.push(`wrongFieldWithRole: ${r.name} không khớp role với marker ds`);
+    }
+  }
+
+  for (const [rid, count] of digitalByRecipient) {
+    if (count > 1) {
+      const name = recipients.find((r) => r.id === rid)?.name || rid;
+      errors.push(`tooManyMarkerDigitalField: ${name}`);
+    }
+  }
+
+  return errors;
+}
+
+const VERSION_ACTION_LABEL: Record<ContractVersionAction, string> = {
+  submit_legal: "Purchasing submit Legal duyệt",
+  legal_reject: "Legal sửa & trả về Purchasing",
+  resubmit: "Purchasing sửa lại & resubmit",
+  reupload: "Purchasing upload lại file",
+};
+
+/**
+ * Chốt 1 version file mới (snapshot nội dung hiện tại) và bump review.version.
+ * v1 = submit Legal lần đầu, v2 = Legal sửa, v3 = Purchasing sửa lại, …
+ */
+function pushVersionEntry(
+  review: ContractReview,
+  action: ContractVersionAction,
+  actor: { role: "purchasing" | "legal"; name: string },
+  extra?: { feedback?: StructuredFeedbackItem[] }
+): ContractVersionEntry {
+  const history = review.versionHistory ? [...review.versionHistory] : [];
+  const version = (history[history.length - 1]?.version || 0) + 1;
+  const entry: ContractVersionEntry = {
+    version,
+    action,
+    actorRole: actor.role,
+    actorName: actor.name,
+    label: VERSION_ACTION_LABEL[action],
+    createdAt: new Date().toISOString(),
+    fileName: review.fileName,
+    reviewedDocxUrl: review.reviewedDocxUrl || review.originalDocxUrl,
+    reviewedText: review.reviewedText || review.originalText,
+    feedback: extra?.feedback,
+  };
+  history.push(entry);
+  review.versionHistory = history;
+  review.version = version;
+  return entry;
+}
+
+export async function submitToLegal(id: string): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(300);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const errors = validateMarkers(review.recipients);
+    if (errors.length) {
+      throw new Error(errors[0]);
+    }
+    review.status = "pending_legal";
+    const session = getSession();
+    const isFirstSubmit = !(review.versionHistory?.length ?? 0);
+    pushVersionEntry(review, isFirstSubmit ? "submit_legal" : "resubmit", {
+      role: "purchasing",
+      name: session?.name || review.ownerName,
+    });
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/submit-legal`);
+}
+
+export async function legalDecide(
+  id: string,
+  decision: "approve" | "reject",
+  feedback: StructuredFeedbackItem[] = []
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(400);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    if (decision === "reject") {
+      review.status = "rejected";
+      review.feedback = feedback;
+      const session = getSession();
+      pushVersionEntry(
+        review,
+        "legal_reject",
+        { role: "legal", name: session?.name || "Trần Thị Legal" },
+        { feedback }
+      );
+    } else {
+      review.status = "syncing_econtract";
+      setTimeout(() => {
+        const latest = getReview(id);
+        if (latest && latest.status === "syncing_econtract") {
+          latest.status = "signed";
+          latest.updatedAt = new Date().toISOString();
+          upsertReview(latest);
+        }
+      }, 2500);
+    }
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/legal-decision`, { decision, feedback });
+}
+
+async function fetchDocxBytes(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Không tải được file tham chiếu (${res.status}): ${url}`);
+  }
+  return res.arrayBuffer();
+}
+
+/**
+ * Phương thức 2 — upload lại .docx sau khi chỉnh sửa offline.
+ * Chạy validateReupload trước; nếu OK → NEW review cycle (bump version, clear proposals/chat, queue AI).
+ */
+export async function reuploadSubmit(
+  contractId: string,
+  file: File
+): Promise<ContractReview> {
+  if (!file.name.toLowerCase().endsWith(".docx")) {
+    throw new ReuploadValidationError([
+      {
+        type: "unexpected_new_field",
+        location: "File phải là .docx",
+      },
+    ]);
+  }
+
+  if (USE_MOCK) {
+    await delay(600);
+    const review = getReview(contractId);
+    if (!review) throw new Error("Not found");
+
+    const previousUrl =
+      review.reviewedDocxUrl ||
+      review.originalDocxUrl ||
+      resolveTemplateUrlForContractType(review.contractTypeId);
+    const templateUrl = resolveTemplateUrlForContractType(review.contractTypeId);
+
+    const [templateBytes, previousBytes, newlyBytes] = await Promise.all([
+      fetchDocxBytes(templateUrl),
+      fetchDocxBytes(previousUrl),
+      file.arrayBuffer(),
+    ]);
+
+    const validation: ReuploadValidationResult =
+      await validateReuploadFromBuffers({
+        contractTypeId: review.contractTypeId,
+        templateBytes,
+        previousBytes,
+        newlyBytes,
+        currentVersion: review.version,
+        templateFileName: templateUrl.split("/").pop(),
+        previousFileName: previousUrl.split("/").pop(),
+        newlyFileName: file.name,
+      });
+
+    if (!validation.isValid) {
+      throw new ReuploadValidationError(validation.issues);
+    }
+
+    const blobUrl = URL.createObjectURL(file);
+
+    review.fileName = file.name;
+    review.fileNames = [file.name];
+    review.originalDocxUrl = blobUrl;
+    review.reviewedDocxUrl = blobUrl;
+    review.attachments = buildAttachments({
+      fileName: file.name,
+      fileNames: [file.name],
+      originalDocxUrl: blobUrl,
+      reviewedDocxUrl: blobUrl,
+    });
+    const session = getSession();
+    const entry = pushVersionEntry(review, "reupload", {
+      role: "purchasing",
+      name: session?.name || review.ownerName,
+    });
+    review.proposals = [];
+    review.messages = [
+      {
+        id: `m_reupload_${Date.now()}`,
+        role: "assistant",
+        content: `Đã nhận file upload lại (v${entry.version}). Hệ thống coi đây là vòng review MỚI — đang đưa vào Processing Queue để chạy lại AI Review Engine. Các đề xuất/chat của phiên bản trước không được áp dụng tự động.`,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+    review.feedback = [];
+    review.status = "queued";
+    review.queuePosition = 1;
+    review.confidence = 0;
+    review.contractInsight = emptyContractInsight(review.id, review.title);
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+
+  const form = new FormData();
+  form.append("file", file);
+  return api.post(`/api/reviews/${contractId}/reupload`, form) as Promise<ContractReview>;
+}
+
+export { ReuploadValidationError, formatIssueMessage };
+export type { FieldStructureIssue, ReuploadValidationResult };
+
+export function buildMarkerSyntax(r: SignRecipient): string {
+  if (!r.marker) return "";
+  const { type, id, height } = r.marker;
+  return `#${type}:${id} r:${r.id} h:${height}#`;
+}
