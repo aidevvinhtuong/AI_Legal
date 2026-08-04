@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
@@ -8,37 +8,93 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { StatusBadge } from "@/components/review/status-badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ChatPanel } from "@/components/review/chat-panel";
+import { ReviewedWordView } from "@/components/review/reviewed-word-view";
 import { useToast } from "@/components/ui/use-toast";
-import { getSession, legalDecide, listReviews } from "@/lib/review-service";
+import {
+  IntakeFormFields,
+  intakeFromReview,
+} from "@/components/review/intake-form-fields";
+import type { CodeLabelOption, DiscountOption } from "@/lib/form-lists-store";
+import {
+  getSession,
+  legalDecide,
+  listBusinessEntities,
+  listContractBases,
+  listContractNames,
+  listContractTypes,
+  listDiscountOptions,
+  listDocumentCategories,
+  listReviews,
+} from "@/lib/review-service";
 import { canAccessLegalInbox } from "@/lib/roles";
-import type { ContractReview, StructuredFeedbackItem } from "@/lib/types";
-import { Check, FileUp, Loader2, Paperclip, X } from "lucide-react";
-
-function FieldRow({ label, value }: { label: string; value?: string | number | null }) {
-  const display =
-    value === undefined || value === null || value === ""
-      ? "—"
-      : String(value);
-  return (
-    <div className="min-w-0 space-y-0.5 text-sm py-1.5">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-medium break-words leading-snug">{display}</dd>
-    </div>
-  );
-}
+import type {
+  ContractReview,
+  ContractTypeConfig,
+  DocumentCategory,
+  StructuredFeedbackItem,
+} from "@/lib/types";
+import {
+  ArrowLeft,
+  Check,
+  FileText,
+  FileUp,
+  Loader2,
+  Paperclip,
+  Play,
+  Sparkles,
+  X,
+} from "lucide-react";
 
 export default function LegalInboxPage() {
   const { toast } = useToast();
   const search = useSearchParams();
   const focusId = search.get("focus");
   const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [reviews, setReviews] = useState<ContractReview[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(focusId);
+  const [activeId, setActiveId] = useState<string | null>(focusId);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [comment, setComment] = useState("");
   const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+
+  const [categories, setCategories] = useState<DocumentCategory[]>([]);
+  const [types, setTypes] = useState<ContractTypeConfig[]>([]);
+  const [discountOptions, setDiscountOptions] = useState<DiscountOption[]>([]);
+  const [businessEntities, setBusinessEntities] = useState<CodeLabelOption[]>(
+    []
+  );
+  const [contractBases, setContractBases] = useState<CodeLabelOption[]>([]);
+  const [contractNames, setContractNames] = useState<CodeLabelOption[]>([]);
+
+  /** % chiều rộng cột Chat trong tab AI Review (kéo thanh chia để đổi). */
+  const [chatPct, setChatPct] = useState(42);
+  const splitRef = useRef<HTMLDivElement>(null);
+
+  const startSplitDrag = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const container = splitRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    const onMove = (ev: PointerEvent) => {
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setChatPct(Math.min(70, Math.max(20, pct)));
+    };
+    const onUp = () => {
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
 
   useEffect(() => {
     const session = getSession();
@@ -48,36 +104,59 @@ export default function LegalInboxPage() {
         variant: "destructive",
       });
     }
-    listReviews()
-      .then((all) => {
+    Promise.all([
+      listReviews(),
+      listDocumentCategories(),
+      listContractTypes(),
+      listDiscountOptions(),
+      listBusinessEntities(),
+      listContractBases(),
+      listContractNames(),
+    ])
+      .then(([all, cats, t, discounts, entities, bases, names]) => {
         setReviews(all);
-        setSelectedId((prev) => {
-          if (prev) return prev;
-          const pending = all.find((r) => r.status === "pending_legal");
-          return pending?.id ?? null;
-        });
+        setCategories(cats);
+        setTypes(t);
+        setDiscountOptions(discounts);
+        setBusinessEntities(entities);
+        setContractBases(bases);
+        setContractNames(names);
       })
       .finally(() => setLoading(false));
   }, [toast]);
 
   useEffect(() => {
-    if (focusId) setSelectedId(focusId);
+    if (focusId) setActiveId(focusId);
   }, [focusId]);
 
   const pending = useMemo(
     () => reviews.filter((r) => r.status === "pending_legal"),
     [reviews]
   );
-  const selected = reviews.find((r) => r.id === selectedId) || null;
+  const active = reviews.find((r) => r.id === activeId) || null;
+
+  const intakeValue = useMemo(
+    () =>
+      active
+        ? intakeFromReview({
+            intake: active.intake,
+            contractTypeId: active.contractTypeId,
+            prompt: active.prompt || "",
+          })
+        : null,
+    [active]
+  );
 
   useEffect(() => {
     setComment("");
     setUploadFiles([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [selectedId]);
+  }, [activeId]);
+
+  const backToList = () => setActiveId(null);
 
   const decide = async (decision: "approve" | "reject") => {
-    if (!selected) return;
+    if (!active) return;
     if (decision === "reject" && !comment.trim()) {
       toast({
         title: "Cần Comment",
@@ -103,7 +182,7 @@ export default function LegalInboxPage() {
         : [];
     setActing(true);
     try {
-      const updated = await legalDecide(selected.id, decision, feedback);
+      const updated = await legalDecide(active.id, decision, feedback);
       setReviews((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
       toast({
         title: decision === "approve" ? "Đã phê duyệt" : "Đã từ chối",
@@ -112,6 +191,7 @@ export default function LegalInboxPage() {
             ? "Hệ thống đang đồng bộ sang Econtract (mock callback)."
             : "Purchasing sẽ thấy checklist việc cần sửa.",
       });
+      backToList();
     } catch (e) {
       toast({
         title: "Lỗi",
@@ -123,252 +203,343 @@ export default function LegalInboxPage() {
     }
   };
 
-  return (
-    <AppLayout>
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Hộp duyệt Legal</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Xem toàn bộ hợp đồng · phê duyệt / từ chối kèm Structured Feedback (single-step)
-        </p>
-      </div>
-
-      {loading ? (
+  if (loading) {
+    return (
+      <AppLayout>
         <div className="flex items-center gap-2 text-muted-foreground py-12 justify-center">
           <Loader2 className="h-4 w-4 animate-spin" /> Đang tải...
         </div>
-      ) : (
-        <div className="grid lg:grid-cols-3 gap-4">
-          <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle className="text-base">Chờ duyệt ({pending.length})</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {pending.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Không có HĐ đang chờ.</p>
-              ) : (
-                pending.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setSelectedId(r.id)}
-                    className={`w-full text-left rounded-lg border p-3 hover:bg-muted/50 ${
-                      selectedId === r.id ? "border-primary bg-primary/5" : ""
-                    }`}
-                  >
-                    <div className="font-medium text-sm">{r.code}</div>
-                    <div className="text-xs text-muted-foreground truncate">{r.title}</div>
-                    <div className="mt-1">
-                      <StatusBadge status={r.status} />
-                    </div>
-                  </button>
-                ))
-              )}
-            </CardContent>
-          </Card>
+      </AppLayout>
+    );
+  }
 
-          <Card className="lg:col-span-2">
+  /* ------- Bước 1: danh sách ticket cần review ------- */
+  if (!active) {
+    return (
+      <AppLayout>
+        <div className="space-y-4">
+          <div>
+            <h1 className="text-2xl font-semibold">Hộp duyệt Legal</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              Danh sách ticket chờ review — bấm Start để bắt đầu xử lý.
+            </p>
+          </div>
+
+          <Card>
             <CardHeader>
               <CardTitle className="text-base">
-                {selected ? selected.code : "Chọn một hợp đồng"}
+                Chờ duyệt ({pending.length})
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {!selected ? (
-                <p className="text-sm text-muted-foreground">Chưa chọn HĐ.</p>
+              {pending.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Không có HĐ đang chờ.
+                </p>
               ) : (
-                <div className="space-y-4">
-                  <div className="rounded-lg border p-3">
-                    <h4 className="text-sm font-semibold mb-2">Thông tin hợp đồng</h4>
-                    <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-                      <FieldRow label="Mã HĐ" value={selected.code} />
-                      <FieldRow label="Tiêu đề" value={selected.title} />
-                      <FieldRow
-                        label="Giá trị hợp đồng (VND)"
-                        value={
-                          selected.intake?.contractValue ||
-                          selected.fields.find((f) => f.id === "contract_value")
-                            ?.value
-                        }
-                      />
-                      <FieldRow label="Loại HĐ" value={selected.contractTypeLabel} />
-                      <FieldRow label="Owner" value={selected.ownerName} />
-                      <FieldRow label="% tin cậy" value={`${selected.confidence}%`} />
-                      <FieldRow
-                        label="Fairness"
-                        value={
-                          selected.contractInsight
-                            ? `${selected.contractInsight.fairnessScore}/100`
-                            : undefined
-                        }
-                      />
-                      <FieldRow
-                        label="Loại tài liệu"
-                        value={selected.intake?.documentCategoryLabel}
-                      />
-                      <FieldRow
-                        label="Tên tài liệu"
-                        value={selected.intake?.documentName}
-                      />
-                      <FieldRow
-                        label="Số tài liệu"
-                        value={selected.intake?.documentNumber}
-                      />
-                      <FieldRow
-                        label="Có chiết khấu"
-                        value={
-                          selected.intake?.hasDiscount === "yes"
-                            ? "Có"
-                            : selected.intake?.hasDiscount === "no"
-                              ? "Không"
-                              : selected.intake?.hasDiscount
-                        }
-                      />
-                      <FieldRow
-                        label="Chi tiết CK"
-                        value={selected.intake?.discountDetails}
-                      />
-                    </dl>
-
-                    <div className="mt-3 space-y-1.5 sm:col-span-2">
-                      <p className="text-xs text-muted-foreground">Tài liệu ký</p>
-                      <div className="flex flex-wrap gap-2">
-                        {(selected.attachments?.length
-                          ? selected.attachments
-                          : [
-                              {
-                                id: "primary",
-                                fileName: selected.fileName,
-                                reviewedDocxUrl:
-                                  selected.reviewedDocxUrl ||
-                                  selected.originalDocxUrl,
-                                originalDocxUrl: selected.originalDocxUrl,
-                              },
-                            ]
-                        ).map((att) => {
-                          const href =
-                            att.reviewedDocxUrl ||
-                            att.originalDocxUrl ||
-                            selected.reviewedDocxUrl ||
-                            selected.originalDocxUrl;
-                          if (!href) return null;
-                          return (
-                            <a
-                              key={att.id}
-                              href={href}
-                              download={att.fileName}
-                              className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1.5 text-sm font-medium text-primary hover:bg-muted hover:underline"
-                            >
-                              <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                              {att.fileName}
-                            </a>
-                          );
-                        })}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        Đính kèm file Word — bấm để tải về máy.
-                      </p>
-                    </div>
-
-                    <Link
-                      href={`/dashboard/contracts/${selected.id}`}
-                      className="inline-block mt-3 text-primary text-sm hover:underline"
-                    >
-                      Mở workspace chi tiết →
-                    </Link>
-                  </div>
-
-                  <div className="space-y-3 rounded-lg border p-3">
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Comment</Label>
-                      <textarea
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                        placeholder="Việc Purchasing cần sửa..."
-                        rows={8}
-                        className="flex min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label className="text-xs">Upload file</Label>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          multiple
-                          className="hidden"
-                          onChange={(e) => {
-                            const files = Array.from(e.target.files || []);
-                            setUploadFiles((prev) => [...prev, ...files]);
-                          }}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => fileInputRef.current?.click()}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                        <th className="py-2.5 pr-4 font-medium">Name</th>
+                        <th className="py-2.5 w-32 font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pending.map((r) => (
+                        <tr
+                          key={r.id}
+                          className="border-b last:border-0 hover:bg-muted/40"
                         >
-                          <FileUp className="h-3.5 w-3.5 mr-1.5" />
-                          Chọn file
-                        </Button>
-                        {uploadFiles.length > 0 && (
-                          <div className="flex flex-wrap gap-1.5">
-                            {uploadFiles.map((f, i) => (
-                              <Badge
-                                key={`${f.name}-${i}`}
-                                variant="secondary"
-                                className="gap-1 font-normal"
-                              >
-                                <Paperclip className="h-3 w-3" />
-                                {f.name}
-                                <button
-                                  type="button"
-                                  className="ml-0.5 hover:text-destructive"
-                                  aria-label={`Xóa ${f.name}`}
-                                  onClick={() =>
-                                    setUploadFiles((prev) =>
-                                      prev.filter((_, idx) => idx !== i)
-                                    )
-                                  }
-                                >
-                                  <X className="h-3 w-3" />
-                                </button>
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex gap-2 justify-end">
-                    <Button
-                      variant="destructive"
-                      disabled={acting}
-                      onClick={() => decide("reject")}
-                    >
-                      {acting ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <X className="h-4 w-4 mr-2" />
-                      )}
-                      Từ chối
-                    </Button>
-                    <Button disabled={acting} onClick={() => decide("approve")}>
-                      {acting ? (
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                      ) : (
-                        <Check className="h-4 w-4 mr-2" />
-                      )}
-                      Phê duyệt → Econtract
-                    </Button>
-                  </div>
+                          <td className="py-3 pr-4">
+                            <div className="font-medium">
+                              {r.intake?.documentName || r.title}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {r.code} · {r.contractTypeLabel}
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <Button size="sm" onClick={() => setActiveId(r.id)}>
+                              <Play className="h-3.5 w-3.5 mr-1.5" />
+                              Start
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
-      )}
+      </AppLayout>
+    );
+  }
+
+  /* ------- Bước 2: chi tiết ticket review (tab Thông tin chung / AI Review) ------- */
+  const attachments = active.attachments?.length
+    ? active.attachments
+    : [
+        {
+          id: "primary",
+          fileName: active.fileName,
+          reviewedDocxUrl: active.reviewedDocxUrl || active.originalDocxUrl,
+          originalDocxUrl: active.originalDocxUrl,
+        },
+      ];
+
+  return (
+    <AppLayout lockViewport mainClassName="p-3 pt-14 lg:p-4 lg:pt-4">
+      <div className="flex flex-col flex-1 min-h-0 gap-2 overflow-hidden">
+        <div className="shrink-0 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              Review: {active.intake?.documentName || active.title}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {active.code} · {active.contractTypeLabel} · Owner:{" "}
+              {active.ownerName} · % tin cậy: {active.confidence}%
+            </p>
+          </div>
+          <Button variant="outline" onClick={backToList}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Quay lại danh sách
+          </Button>
+        </div>
+
+        <Tabs
+          defaultValue="info"
+          className="flex flex-1 min-h-0 flex-col gap-2 overflow-hidden"
+        >
+          <TabsList className="h-10 shrink-0 self-start">
+            <TabsTrigger value="info" className="gap-1.5 px-4">
+              <FileText className="h-3.5 w-3.5" />
+              Thông tin chung
+            </TabsTrigger>
+            <TabsTrigger value="ai-review" className="gap-1.5 px-4">
+              <Sparkles className="h-3.5 w-3.5" />
+              AI Review
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent
+            value="info"
+            className="mt-0 flex-1 min-h-0 overflow-y-auto space-y-4 data-[state=inactive]:hidden"
+          >
+            <Card className="rounded-xl border-sky-200 bg-sky-50/50">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Thông tin tài liệu</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Thông tin do Purchasing khai báo khi tạo tài liệu (chỉ xem).
+                </p>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {intakeValue && (
+                  <IntakeFormFields
+                    value={intakeValue}
+                    onChange={() => {}}
+                    categories={categories}
+                    types={types}
+                    discountOptions={discountOptions}
+                    businessEntities={businessEntities}
+                    contractBases={contractBases}
+                    contractNames={contractNames}
+                    disabled
+                  />
+                )}
+
+                <div className="space-y-2">
+                  <Label className="text-sky-800">Hợp đồng review</Label>
+                  <p className="text-xs text-sky-700/70">
+                    File Word đính kèm — bấm để tải về máy.
+                  </p>
+                  <ul className="space-y-2">
+                    {attachments.map((att) => {
+                      const href =
+                        att.reviewedDocxUrl ||
+                        att.originalDocxUrl ||
+                        active.reviewedDocxUrl ||
+                        active.originalDocxUrl;
+                      if (!href) return null;
+                      return (
+                        <li key={att.id}>
+                          <a
+                            href={href}
+                            download={att.fileName}
+                            className="flex items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-sm hover:bg-muted/60"
+                          >
+                            <FileText className="h-4 w-4 text-sky-600 shrink-0" />
+                            <span className="font-medium text-primary hover:underline truncate">
+                              {att.fileName}
+                            </span>
+                          </a>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <Link
+                    href={`/dashboard/contracts/${active.id}`}
+                    className="inline-block text-primary text-sm hover:underline"
+                  >
+                    Mở workspace chi tiết →
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">Quyết định của Legal</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Comment</Label>
+                  <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Việc Purchasing cần sửa..."
+                    rows={8}
+                    className="flex min-h-[160px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Upload file</Label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        setUploadFiles((prev) => [...prev, ...files]);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <FileUp className="h-3.5 w-3.5 mr-1.5" />
+                      Chọn file
+                    </Button>
+                    {uploadFiles.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {uploadFiles.map((f, i) => (
+                          <Badge
+                            key={`${f.name}-${i}`}
+                            variant="secondary"
+                            className="gap-1 font-normal"
+                          >
+                            <Paperclip className="h-3 w-3" />
+                            {f.name}
+                            <button
+                              type="button"
+                              className="ml-0.5 hover:text-destructive"
+                              aria-label={`Xóa ${f.name}`}
+                              onClick={() =>
+                                setUploadFiles((prev) =>
+                                  prev.filter((_, idx) => idx !== i)
+                                )
+                              }
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 justify-end">
+                  <Button
+                    variant="destructive"
+                    disabled={acting}
+                    onClick={() => decide("reject")}
+                  >
+                    {acting ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <X className="h-4 w-4 mr-2" />
+                    )}
+                    Từ chối
+                  </Button>
+                  <Button disabled={acting} onClick={() => decide("approve")}>
+                    {acting ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    ) : (
+                      <Check className="h-4 w-4 mr-2" />
+                    )}
+                    Phê duyệt → Econtract
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent
+            value="ai-review"
+            className="mt-0 flex-1 min-h-0 overflow-hidden data-[state=inactive]:hidden"
+          >
+            <div
+              ref={splitRef}
+              className="flex flex-col xl:flex-row gap-3 xl:gap-0 h-full min-h-0"
+            >
+              <Card
+                style={{ ["--chat-w" as string]: `${chatPct}%` }}
+                className="flex flex-col flex-1 xl:flex-none xl:w-[var(--chat-w)] h-full min-h-0 overflow-hidden rounded-xl"
+              >
+                <CardHeader className="py-3 border-b shrink-0">
+                  <CardTitle className="text-sm">Chat với AI</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Chỉ xem — lịch sử trao đổi giữa Purchasing và AI.
+                  </p>
+                </CardHeader>
+                <CardContent className="p-0 flex-1 min-h-0 flex flex-col overflow-hidden">
+                  <ChatPanel
+                    messages={active.messages}
+                    disabled
+                    onSend={async () => {}}
+                  />
+                </CardContent>
+              </Card>
+
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                onPointerDown={startSplitDrag}
+                className="hidden xl:flex shrink-0 w-3 cursor-col-resize items-center justify-center group"
+                title="Kéo để chỉnh tỷ lệ hai ngăn"
+              >
+                <div className="h-16 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-active:bg-primary" />
+              </div>
+
+              <Card className="flex flex-col flex-1 h-full min-h-0 overflow-hidden p-0 rounded-xl">
+                <ReviewedWordView
+                  fileName={active.fileName}
+                  title={active.title}
+                  originalText={active.originalText}
+                  reviewedText={active.reviewedText || active.originalText}
+                  proposals={active.proposals}
+                  canEdit={false}
+                  docxUrl={active.reviewedDocxUrl || active.originalDocxUrl}
+                  attachments={active.attachments}
+                  contractInsight={active.contractInsight}
+                  onAccept={() => {}}
+                  onUndo={() => {}}
+                  onAcceptAll={() => {}}
+                  onUndoAll={() => {}}
+                />
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
     </AppLayout>
   );
 }

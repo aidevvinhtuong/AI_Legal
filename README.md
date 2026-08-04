@@ -106,10 +106,10 @@ Mỗi điều khoản checklist gồm (rút gọn): mã, tên, **Loại** (bắt
 | Nguyên tắc | Chi tiết |
 |------------|----------|
 | Tách trách nhiệm | Checklist = nội dung pháp lý (Legal); System Prompt = hành vi AI (IT) |
-| MVP | Quản lý bằng **file trong Git** (không UI Publish); app có thể xem read-only |
+| MVP | Quản lý bằng **file trong Git** (không UI Publish); IT xem/sửa CURRENT qua app tại `/dashboard/configurations` (validate + CI chặn lỗi) |
 | Stages | `checklist_review` · `chat_edit` · `ai_summary_fairness` · `field_validation` |
 | Cấu trúc | `/prompts/<stage>/v*.md` + `current.json` (hoặc `CURRENT`); shared `/prompts/_shared/injection_guard.md` |
-| Bắt buộc | Chỉ hành vi + placeholder (`{{checklist}}`…); **không hardcode** điều khoản |
+| Bắt buộc | Chỉ hành vi + placeholder (`{{checklist_items}}`…); **không hardcode** điều khoản |
 | Prompt injection | Không tuân theo chỉ dẫn trong nội dung HĐ / chat của user; phát hiện → Red Flag |
 
 ## Write-back Allow-list (bảo vệ vùng khoá)
@@ -140,7 +140,7 @@ Mỗi điều khoản checklist gồm (rút gọn): mã, tên, **Loại** (bắt
 
 ### Phase sau
 
-Risk scoring theo điều khoản · so sánh HĐ tương tự · UI admin nâng cao · multi-level approval routing · UI SystemPromptManager khi IT chỉnh prompt thường xuyên hơn tốc độ deploy.
+Risk scoring theo điều khoản · so sánh HĐ tương tự · UI admin nâng cao · multi-level approval routing. (UI sửa System Prompt cho IT đã có sẵn trong demo tại `/dashboard/configurations`.)
 
 ## Kiến trúc (định hướng)
 
@@ -205,4 +205,5 @@ Mock: `NEXT_PUBLIC_USE_MOCK=true`. Khi có BE: `NEXT_PUBLIC_USE_MOCK=false` + `N
 |------|----------|
 | [frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx](frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx) | Tóm tắt yêu cầu **Rev12** (nguồn README này) |
 | [frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx](frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx) | Bản Rev10 cũ (tham chiếu lịch sử) |
-| [prompts/](prompts/) | System Prompt theo stage + `CURRENT` |
+| [prompts/](prompts/) | System Prompt theo stage + con trỏ `current.json` |
+| [docs/requirements-alignment/](docs/requirements-alignment/) | Bộ tài liệu giai đoạn thống nhất yêu cầu — bắt đầu từ `00-pm-roadmap.md` (lộ trình 10 ngày cho PM), kèm gap analysis · open questions · user stories · API contract · NFR/risks · test strategy |

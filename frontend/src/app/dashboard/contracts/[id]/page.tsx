@@ -45,6 +45,7 @@ import {
   submitToLegal,
   undoAllProposals,
   updateProposalStatus,
+  updateRecipient,
   updateReviewIntake,
   updateReviewedDocument,
   updateReviewedSection,
@@ -692,14 +693,24 @@ export default function ContractDetailPage() {
                   <Card className="rounded-xl">
                     <CardContent className="pt-6">
                       <MarkerPanel
+                        review={review}
                         recipients={review.recipients}
                         errors={canEdit ? markerErrors : []}
                         readOnly={!canEdit}
-                        onAssign={async (recipientId, positionLabel) => {
+                        onAssign={async (recipientId, positionLabel, height) => {
                           const updated = await assignMarker(
                             review.id,
                             recipientId,
-                            positionLabel
+                            positionLabel,
+                            height
+                          );
+                          setReview(updated);
+                        }}
+                        onUpdateRecipient={async (recipientId, patch) => {
+                          const updated = await updateRecipient(
+                            review.id,
+                            recipientId,
+                            patch
                           );
                           setReview(updated);
                         }}

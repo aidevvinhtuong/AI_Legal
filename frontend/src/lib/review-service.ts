@@ -23,7 +23,9 @@ import type {
   ContractVersionEntry,
   DocumentCategory,
   DocumentIntakeMeta,
+  EcontractSignType,
   EditableField,
+  MarkerType,
   SignRecipient,
   StructuredFeedbackItem,
   UserRole,
@@ -687,10 +689,29 @@ export async function saveFields(
   return api.put(`/api/reviews/${id}/fields`, { fields });
 }
 
+/**
+ * Loại marker suy ra từ hình thức ký (tài liệu FPT.eContract):
+ * review → không marker · sign_img → is · passcode/eKYC → ds.
+ */
+export function markerTypeForSignType(
+  signType: EcontractSignType
+): MarkerType | null {
+  if (signType === "review") return null;
+  if (signType === "sign_img") return "is";
+  return "ds";
+}
+
+/** Recipient có cần gán marker không (reviewer thì không). */
+export function recipientNeedsMarker(r: SignRecipient): boolean {
+  if (r.ecRole === "reviewer" || r.signType === "review") return false;
+  return true;
+}
+
 export async function assignMarker(
   id: string,
   recipientId: string,
-  positionLabel: string
+  positionLabel: string,
+  height = 100
 ): Promise<ContractReview> {
   if (USE_MOCK) {
     await delay(200);
@@ -701,56 +722,150 @@ export async function assignMarker(
       return {
         ...r,
         marker: {
-          id: `${r.markerType}_${r.id}`,
+          id: `${r.markerType}_${r.refRecipientId ?? r.id}`,
           type: r.markerType,
-          height: 40,
+          height,
           positionLabel,
         },
       };
     });
-    const allAssigned = review.recipients.every((r) => r.marker);
-    review.status = allAssigned ? "awaiting_markers" : review.status;
+    const allAssigned = review.recipients
+      .filter(recipientNeedsMarker)
+      .every((r) => r.marker);
     if (allAssigned && review.status === "reviewed") {
       review.status = "awaiting_markers";
     }
-    if (allAssigned) review.status = "awaiting_markers";
     review.updatedAt = new Date().toISOString();
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/markers`, { recipientId, positionLabel });
+  return api.post(`/api/reviews/${id}/markers`, {
+    recipientId,
+    positionLabel,
+    height,
+  });
 }
 
+/** Cập nhật thông tin người ký (email, orgName, hình thức ký...) trước khi đẩy eContract. */
+export async function updateRecipient(
+  id: string,
+  recipientId: string,
+  patch: Partial<SignRecipient>
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(150);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    review.recipients = review.recipients.map((r) => {
+      if (r.id !== recipientId) return r;
+      const next = { ...r, ...patch };
+      // Đổi hình thức ký → cập nhật loại marker và gỡ marker cũ nếu lệch loại
+      if (patch.signType && next.markerType !== "st") {
+        const mt = markerTypeForSignType(patch.signType);
+        if (mt) next.markerType = mt;
+        if (next.marker && (!mt || next.marker.type !== mt)) {
+          next.marker = undefined;
+        }
+        if (!mt) next.marker = undefined;
+      }
+      return next;
+    });
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.patch(`/api/reviews/${id}/recipients/${recipientId}`, patch);
+}
+
+/**
+ * Validate marker theo bảng mã lỗi FPT.eContract (mục 3.2 tài liệu API):
+ * isNotExistsMarkerField · tooManyMarkerDigitalField · wrongFieldWithRole ·
+ * isNotExistsRecipientInfo · recipientRoleIsNull · isNotExistsIndividual.
+ */
 export function validateMarkers(recipients: SignRecipient[]): string[] {
   const errors: string[] = [];
-  const ids = new Set<string>();
-  const digitalByRecipient = new Map<string, number>();
+  const markerIds = new Set<string>();
+  const signatureMarkersByRecipient = new Map<string, number>();
 
   for (const r of recipients) {
-    if (!r.marker) {
-      errors.push(`Thiếu marker cho: ${r.name}`);
+    const isTextMarker = r.markerType === "st";
+
+    // Thông tin luồng ký bắt buộc (chỉ với người thật trong luồng, không áp cho marker st)
+    if (!isTextMarker) {
+      if (!r.ecRole) {
+        errors.push(`recipientRoleIsNull: thiếu role (signer/reviewer) cho ${r.name}`);
+      }
+      if (!r.orgName) {
+        errors.push(`isNotExistsIndividual: thiếu orgName của bên ký cho ${r.name}`);
+      }
+      if (!r.email) {
+        errors.push(`isNotExistsRecipientInfo: thiếu email người ký ${r.name}`);
+      }
+    }
+
+    // Reviewer không được có marker
+    if (!recipientNeedsMarker(r)) {
+      if (r.marker) {
+        errors.push(
+          `wrongFieldWithRole: ${r.name} là người xem xét (reviewer) — không được gán marker`
+        );
+      }
       continue;
     }
-    if (ids.has(r.marker.id)) {
-      errors.push(`Trùng marker id: ${r.marker.id}`);
-    }
-    ids.add(r.marker.id);
 
-    if (r.marker.type === "ds") {
-      digitalByRecipient.set(
-        r.id,
-        (digitalByRecipient.get(r.id) || 0) + 1
+    if (!r.marker) {
+      errors.push(`isNotExistsMarkerField: thiếu marker vị trí ký cho ${r.name}`);
+      continue;
+    }
+
+    // Marker id phải duy nhất trong toàn file
+    if (markerIds.has(r.marker.id)) {
+      errors.push(`Trùng marker id: ${r.marker.id} (id mỗi marker phải duy nhất)`);
+    }
+    markerIds.add(r.marker.id);
+
+    if (!(r.marker.height > 0)) {
+      errors.push(`Marker ${r.marker.id}: chiều cao (h) phải > 0`);
+    }
+
+    // Loại marker phải khớp hình thức ký
+    if (!isTextMarker && r.signType) {
+      const expected = markerTypeForSignType(r.signType);
+      if (expected && r.marker.type !== expected) {
+        errors.push(
+          `wrongFieldWithRole: ${r.name} ký kiểu ${r.signType} cần marker ${expected}, đang gán ${r.marker.type}`
+        );
+      }
+    }
+
+    // Mỗi người ký chỉ 1 marker chữ ký (ds/is) trong file
+    if (r.marker.type === "ds" || r.marker.type === "is") {
+      const key = r.refRecipientId ?? r.id;
+      signatureMarkersByRecipient.set(
+        key,
+        (signatureMarkersByRecipient.get(key) || 0) + 1
       );
     }
-    if (r.marker.type === "ds" && r.role === "witness") {
-      errors.push(`wrongFieldWithRole: ${r.name} không khớp role với marker ds`);
+
+    // Marker st phải trỏ tới một recipient thật trong luồng ký
+    if (isTextMarker) {
+      const target = r.refRecipientId
+        ? recipients.find((x) => x.id === r.refRecipientId)
+        : undefined;
+      if (!target) {
+        errors.push(
+          `Marker st "${r.name}": thiếu refRecipientId trỏ tới người ký trong luồng`
+        );
+      }
     }
   }
 
-  for (const [rid, count] of digitalByRecipient) {
+  for (const [rid, count] of signatureMarkersByRecipient) {
     if (count > 1) {
       const name = recipients.find((r) => r.id === rid)?.name || rid;
-      errors.push(`tooManyMarkerDigitalField: ${name}`);
+      errors.push(
+        `tooManyMarkerDigitalField: ${name} có ${count} marker chữ ký (chỉ được 1)`
+      );
     }
   }
 
@@ -956,8 +1071,85 @@ export async function reuploadSubmit(
 export { ReuploadValidationError, formatIssueMessage };
 export type { FieldStructureIssue, ReuploadValidationResult };
 
+/**
+ * Cú pháp marker theo tài liệu "Hướng dẫn cấu trúc đánh dấu marker" FPT.eContract:
+ * `#ds:id_123 r:p_001_r_001 h:100 #` — khoảng cách giữa 2 dấu `#` là chiều rộng ô ký;
+ * chèn vào file bằng mực trắng để ẩn với người đọc.
+ */
 export function buildMarkerSyntax(r: SignRecipient): string {
   if (!r.marker) return "";
   const { type, id, height } = r.marker;
-  return `#${type}:${id} r:${r.id} h:${height}#`;
+  const recipientRef = r.refRecipientId ?? r.id;
+  return `#${type}:${id} r:${recipientRef} h:${height} #`;
+}
+
+/** signTypes gửi sang eContract theo hình thức ký. */
+function econtractSignTypes(signType?: EcontractSignType): string[] {
+  if (!signType || signType === "review") return [];
+  if (signType === "sign_img") return ["Sign-IMG"];
+  if (signType === "sign_ekyc") return ["sign_ekyc", "sign_fca.otp"];
+  return ["sign_fca.passcode"];
+}
+
+/**
+ * Dựng payload API khởi tạo HĐ eContract (mục 3.1.2 tài liệu API —
+ * POST {ROOT_URL}/services/excall/api/excall) từ review hiện tại.
+ * Dùng để preview/kiểm tra trước khi backend gọi thật.
+ */
+export function buildEcontractPayload(review: ContractReview) {
+  // Marker st không phải người ký — loại khỏi parties
+  const flowRecipients = review.recipients.filter((r) => r.markerType !== "st");
+
+  const partyMap = new Map<
+    string,
+    { id: string; isMyOrg: boolean; isOrg: boolean; orgName: string; order: number; recipients: unknown[] }
+  >();
+
+  flowRecipients.forEach((r, idx) => {
+    const partyId = r.partyId || `p_${String(idx + 1).padStart(3, "0")}`;
+    if (!partyMap.has(partyId)) {
+      partyMap.set(partyId, {
+        id: partyId,
+        isMyOrg: r.isMyOrg ?? r.role === "company",
+        isOrg: true,
+        orgName: r.orgName || "",
+        order: r.order ?? partyMap.size + 1,
+        recipients: [],
+      });
+    }
+    partyMap.get(partyId)!.recipients.push({
+      isEsign: false,
+      recipientId: r.id,
+      email: r.email || "",
+      personalName: r.name,
+      telephoneNumber: r.phone || "",
+      contactId: "",
+      role: r.ecRole || "signer",
+      order: r.order ?? 1,
+      notifyTypes: ["email_econtract"],
+      signTypes: econtractSignTypes(r.signType),
+    });
+  });
+
+  return {
+    id: "",
+    refId: review.code,
+    selector:
+      "flow_start_AI_LEGAL_create_auto_determine_econtract_integrate",
+    lookup: review.code,
+    attrs: null,
+    payload: null,
+    body: {
+      alias: "",
+      refId: review.code,
+      file: "<base64 file .docx đã chèn marker mực trắng>",
+      fileName: review.fileName,
+      docTypeCode: null as number | null, // chốt mã loại tài liệu với FPT (lỗi docTypeCodeIsNotExists)
+      headerFields: [
+        { id: "envName", name: "Tên tài liệu", type: "string", value: review.title },
+        { id: "envNo", name: "Số tài liệu", type: "string", value: review.code },
+      ],
+      parties: Array.from(partyMap.values()),
+    },
+  };
 }

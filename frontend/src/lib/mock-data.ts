@@ -319,21 +319,40 @@ export function createMockReview(partial?: Partial<ContractReview>): ContractRev
     ],
     recipients: partial?.recipients || [
       {
-        id: "r1",
+        id: "p_001_r_001",
         name: "Đại diện Công ty (SGVN)",
         role: "company",
+        partyId: "p_001",
+        orgName: "Công ty SGVN",
+        isMyOrg: true,
+        order: 2,
+        email: "daidien@sgvn.example.com",
+        phone: "0900000001",
+        ecRole: "signer",
+        signType: "sign_fca.passcode",
         markerType: "ds",
       },
       {
-        id: "r2",
+        id: "p_002_r_001",
         name: "Đại diện NCC",
         role: "counterparty",
+        partyId: "p_002",
+        orgName: "Công ty NCC",
+        isMyOrg: false,
+        order: 1,
+        email: "daidien@ncc.example.com",
+        phone: "0900000002",
+        ecRole: "signer",
+        signType: "sign_ekyc",
         markerType: "ds",
       },
       {
-        id: "r3",
-        name: "Họ tên người ký NCC",
+        id: "st_ho_ten_ncc",
+        name: "Họ tên người ký NCC (text điền)",
         role: "counterparty",
+        partyId: "p_002",
+        orgName: "Công ty NCC",
+        refRecipientId: "p_002_r_001",
         markerType: "st",
       },
     ],
@@ -828,7 +847,7 @@ const seedReviews: ContractReview[] = [
   }),
 ];
 
-const STORAGE_KEY = "ai_econtract_reviews_v21";
+const STORAGE_KEY = "ai_econtract_reviews_v22";
 
 const seededReviews: ContractReview[] = seedReviews.map((r, i) =>
   ensureVersionHistory({

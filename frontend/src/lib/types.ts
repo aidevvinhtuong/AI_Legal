@@ -18,6 +18,19 @@ export type ProposalKind = "A" | "B";
 
 export type MarkerType = "ds" | "is" | "st";
 
+/**
+ * Hình thức ký theo FPT.eContract (tài liệu "Hướng dẫn cấu trúc đánh dấu marker"):
+ * - review: người xem xét — KHÔNG có marker
+ * - sign_img: ký điện tử (ký ảnh) → marker `is`
+ * - sign_fca.passcode: chữ ký số dài hạn pháp nhân (passcode) → marker `ds`
+ * - sign_ekyc: ký chữ ký số cấp 1 lần xác thực eKYC/OTP → marker `ds`
+ */
+export type EcontractSignType =
+  | "review"
+  | "sign_img"
+  | "sign_fca.passcode"
+  | "sign_ekyc";
+
 export interface UserSession {
   token: string;
   name: string;
@@ -90,13 +103,37 @@ export interface ChatMessage {
 }
 
 export interface SignRecipient {
+  /** recipientId theo chuẩn eContract, ví dụ `p_001_r_001` */
   id: string;
+  /** personalName trên eContract */
   name: string;
   role: "company" | "counterparty" | "witness";
+  /** Mã bên tham gia luồng ký (party), ví dụ `p_001` */
+  partyId?: string;
+  /** Tên tổ chức của bên — eContract bắt buộc (lỗi isNotExistsIndividual) */
+  orgName?: string;
+  /** Bên thuộc tổ chức mình (Công ty) hay đối tác */
+  isMyOrg?: boolean;
+  /** Thứ tự ký trong luồng */
+  order?: number;
+  /** Email nhận thông báo ký — eContract bắt buộc với recipient */
+  email?: string;
+  phone?: string;
+  /** Vai trò trên eContract: signer có marker, reviewer không marker */
+  ecRole?: "signer" | "reviewer";
+  /** Hình thức ký — quyết định loại marker (is/ds) */
+  signType?: EcontractSignType;
+  /**
+   * Với marker `st` (text cần điền): trỏ tới recipientId thật trong luồng ký
+   * (marker st không phải một người ký riêng).
+   */
+  refRecipientId?: string;
   markerType: MarkerType;
   marker?: {
+    /** id duy nhất trong toàn file, ví dụ `ds_p_001_r_001` */
     id: string;
     type: MarkerType;
+    /** h: chiều cao ô ký (chiều rộng = khoảng cách #...#) */
     height: number;
     positionLabel: string;
   };
