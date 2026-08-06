@@ -8,6 +8,8 @@ export interface ContractParentCategory {
   id: string;
   label: string;
   description?: string;
+  /** Ảnh hưởng requireTemplateMatch / group của loại con tạo mới. */
+  group?: ContractGroup;
 }
 
 export const CONTRACT_PARENT_CATEGORIES: ContractParentCategory[] = [
@@ -15,11 +17,13 @@ export const CONTRACT_PARENT_CATEGORIES: ContractParentCategory[] = [
     id: "purchase",
     label: "Hợp đồng mua hàng",
     description: "Các loại hợp đồng con thuộc nhóm mua hàng / khung",
+    group: "framework",
   },
   {
     id: "vendor",
     label: "Hợp đồng NCC",
     description: "Các loại hợp đồng con với nhà cung cấp",
+    group: "vendor",
   },
 ];
 
@@ -117,7 +121,7 @@ export interface ApprovalMatrixConfig {
 
 /**
  * Một phiên bản cấu hình theo loại hợp đồng.
- * Quy tắc: tại 1 thời điểm mỗi contractTypeId chỉ có đúng 1 bản Published.
+ * Sprint 1: sửa trực tiếp + Lưu — không workflow Draft/Publish.
  */
 export interface ContractTypeConfigVersion {
   id: string;
@@ -155,7 +159,7 @@ export interface ContractTypeConfigVersion {
   updatedBy: string;
   publishedAt?: string;
   publishedBy?: string;
-  /** Kết quả test preview gần nhất (trước Publish). */
+  /** Kết quả test preview gần nhất (tuỳ chọn). */
   lastTestPreview?: {
     sampleFileName: string;
     testedAt: string;
@@ -200,8 +204,8 @@ export interface ConfigAuditEntry {
 export interface ConfigPermission {
   role: "legal" | "legal_lead" | "purchasing" | "admin" | "it";
   canView: boolean;
+  /** Quyền sửa / lưu cấu hình (tên cũ canEditDraft giữ tương thích). */
   canEditDraft: boolean;
-  canPublish: boolean;
   canImportExport: boolean;
   canViewAudit: boolean;
 }
@@ -211,15 +215,14 @@ export const DEFAULT_CONFIG_PERMISSIONS: ConfigPermission[] = [
     role: "legal",
     canView: true,
     canEditDraft: true,
-    canPublish: false,
     canImportExport: true,
     canViewAudit: true,
   },
+  /** @deprecated — gộp vào Legal; giữ để session cũ không lỗi. */
   {
     role: "legal_lead",
     canView: true,
     canEditDraft: true,
-    canPublish: true,
     canImportExport: true,
     canViewAudit: true,
   },
@@ -227,7 +230,6 @@ export const DEFAULT_CONFIG_PERMISSIONS: ConfigPermission[] = [
     role: "purchasing",
     canView: false,
     canEditDraft: false,
-    canPublish: false,
     canImportExport: false,
     canViewAudit: false,
   },
@@ -235,7 +237,6 @@ export const DEFAULT_CONFIG_PERMISSIONS: ConfigPermission[] = [
     role: "admin",
     canView: true,
     canEditDraft: true,
-    canPublish: true,
     canImportExport: true,
     canViewAudit: true,
   },
@@ -243,7 +244,6 @@ export const DEFAULT_CONFIG_PERMISSIONS: ConfigPermission[] = [
     role: "it",
     canView: true,
     canEditDraft: true,
-    canPublish: true,
     canImportExport: true,
     canViewAudit: true,
   },

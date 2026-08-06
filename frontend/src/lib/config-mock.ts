@@ -2,8 +2,10 @@ import type {
   ApprovalMatrixConfig,
   ChecklistClause,
   ConfigAuditEntry,
+  ContractParentCategory,
   ContractTypeConfigVersion,
 } from "@/lib/config-types";
+import { CONTRACT_PARENT_CATEGORIES } from "@/lib/config-types";
 
 function clause(
   partial: Omit<
@@ -369,6 +371,7 @@ export const SEED_CONFIG_AUDIT: ConfigAuditEntry[] = [
 const CFG_KEY = "ai_econtract_config_versions_v3";
 const MATRIX_KEY = "ai_econtract_matrices_v1";
 const AUDIT_KEY = "ai_econtract_config_audit_v1";
+const PARENT_KEY = "ai_econtract_parent_categories_v1";
 
 function load<T>(key: string, seed: T[]): T[] {
   if (typeof window === "undefined") return seed;
@@ -411,4 +414,33 @@ export function loadConfigAudit() {
 
 export function saveConfigAudit(data: ConfigAuditEntry[]) {
   save(AUDIT_KEY, data);
+}
+
+/** Seed mặc định + loại cha user thêm (localStorage). */
+export function loadParentCategories(): ContractParentCategory[] {
+  if (typeof window === "undefined") {
+    return CONTRACT_PARENT_CATEGORIES.map((p) => ({ ...p }));
+  }
+  const raw = localStorage.getItem(PARENT_KEY);
+  if (!raw) {
+    return CONTRACT_PARENT_CATEGORIES.map((p) => ({ ...p }));
+  }
+  try {
+    const custom = JSON.parse(raw) as ContractParentCategory[];
+    if (!Array.isArray(custom) || custom.length === 0) {
+      return CONTRACT_PARENT_CATEGORIES.map((p) => ({ ...p }));
+    }
+    const byId = new Map<string, ContractParentCategory>();
+    for (const p of CONTRACT_PARENT_CATEGORIES) byId.set(p.id, { ...p });
+    for (const p of custom) {
+      if (p?.id && p?.label) byId.set(p.id, { ...byId.get(p.id), ...p });
+    }
+    return Array.from(byId.values());
+  } catch {
+    return CONTRACT_PARENT_CATEGORIES.map((p) => ({ ...p }));
+  }
+}
+
+export function saveParentCategories(data: ContractParentCategory[]) {
+  save(PARENT_KEY, data);
 }

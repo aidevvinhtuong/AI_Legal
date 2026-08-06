@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import {
   defaultFormLists,
@@ -12,31 +18,65 @@ import {
   slugId,
   type FormListsState,
 } from "@/lib/form-lists-store";
-import { ExternalLink, Plus, RotateCcw, Save, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  Plus,
+  RotateCcw,
+  Save,
+  Trash2,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function Section({
+  id,
   title,
   field,
   description,
+  open,
+  onToggle,
   children,
 }: {
+  id: string;
   title: string;
   field: string;
   description: string;
+  open: boolean;
+  onToggle: () => void;
   children: React.ReactNode;
 }) {
   return (
     <section className="rounded-xl border bg-white shadow-sm overflow-hidden">
-      <header className="border-b px-5 py-4">
-        <h2 className="text-base font-semibold">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Field form: <span className="font-medium text-foreground">{field}</span>
-          {" · "}
-          {description}
-        </p>
-      </header>
-      <div className="space-y-3 px-5 py-4">{children}</div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left"
+        aria-expanded={open}
+        aria-controls={`form-list-${id}`}
+      >
+        <div className="min-w-0">
+          <h2 className="text-base font-semibold">{title}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Field form:{" "}
+            <span className="font-medium text-foreground">{field}</span>
+            {" · "}
+            {description}
+          </p>
+        </div>
+        <ChevronDown
+          className={cn(
+            "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180"
+          )}
+        />
+      </button>
+      {open && (
+        <div
+          id={`form-list-${id}`}
+          className="space-y-3 border-t px-5 py-4"
+        >
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -46,39 +86,75 @@ type TableRow = {
   code: string;
   value: string;
   codeReadOnly?: boolean;
+  /** Giá trị cột select phụ (vd. Loại hợp đồng). */
+  selectValue?: string;
 };
 
 function ValueTable({
   rows,
   onChangeCode,
   onChangeValue,
+  onChangeSelect,
   onRemove,
   canRemove = true,
   emptyText = "Chưa có dòng — bấm Thêm.",
+  selectColumn,
 }: {
   rows: TableRow[];
   onChangeCode: (index: number, code: string) => void;
   onChangeValue: (index: number, value: string) => void;
+  onChangeSelect?: (index: number, value: string) => void;
   onRemove: (index: number) => void;
   canRemove?: boolean | ((index: number) => boolean);
   emptyText?: string;
+  selectColumn?: {
+    header: string;
+    options: { value: string; label: string }[];
+    placeholder?: string;
+  };
 }) {
+  // Key React ổn định — KHÔNG dùng row.key (có thể = Mã/id đang sửa → mất focus mỗi ký tự).
+  const keysRef = useRef<string[]>([]);
+  while (keysRef.current.length < rows.length) {
+    keysRef.current.push(`fl_row_${Math.random().toString(36).slice(2, 9)}`);
+  }
+  if (keysRef.current.length > rows.length) {
+    keysRef.current.length = rows.length;
+  }
+
+  const handleRemove = (index: number) => {
+    keysRef.current.splice(index, 1);
+    onRemove(index);
+  };
+
+  const colSpan = selectColumn ? 5 : 4;
+
   return (
     <div className="overflow-x-auto rounded-lg border">
-      <table className="w-full min-w-[420px] border-collapse text-sm">
+      <table
+        className={cn(
+          "w-full border-collapse text-sm",
+          selectColumn ? "min-w-[560px]" : "min-w-[420px]"
+        )}
+      >
         <thead>
           <tr>
             <th className="w-10 bg-slate-50 px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground border-b">
               #
             </th>
             <th className="w-40 bg-slate-50 px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground border-b">
-              Mã
+              Mã (Code)
             </th>
             <th className="bg-slate-50 px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground border-b">
-              Giá trị
+              Giá trị (Value)
             </th>
+            {selectColumn && (
+              <th className="w-56 bg-slate-50 px-3 py-2.5 text-left text-xs font-semibold text-muted-foreground border-b">
+                {selectColumn.header}
+              </th>
+            )}
             <th className="w-14 bg-slate-50 px-3 py-2.5 text-center text-xs font-semibold text-muted-foreground border-b">
-              Xóa
+              Xóa (Delete)
             </th>
           </tr>
         </thead>
@@ -86,7 +162,7 @@ function ValueTable({
           {rows.length === 0 ? (
             <tr>
               <td
-                colSpan={4}
+                colSpan={colSpan}
                 className="border-b px-3 py-6 text-center text-sm text-muted-foreground"
               >
                 {emptyText}
@@ -97,7 +173,10 @@ function ValueTable({
               const removable =
                 typeof canRemove === "function" ? canRemove(index) : canRemove;
               return (
-                <tr key={row.key} className="hover:bg-slate-50/80">
+                <tr
+                  key={keysRef.current[index] ?? `fallback_${index}`}
+                  className="hover:bg-slate-50/80"
+                >
                   <td className="border-b px-3 py-2 text-muted-foreground tabular-nums align-middle">
                     {index + 1}
                   </td>
@@ -118,6 +197,32 @@ function ValueTable({
                       aria-label={`Giá trị dòng ${index + 1}`}
                     />
                   </td>
+                  {selectColumn && (
+                    <td className="border-b px-3 py-2 align-middle">
+                      <Select
+                        value={row.selectValue || undefined}
+                        onValueChange={(v) => onChangeSelect?.(index, v)}
+                      >
+                        <SelectTrigger
+                          className="h-9"
+                          aria-label={`${selectColumn.header} dòng ${index + 1}`}
+                        >
+                          <SelectValue
+                            placeholder={
+                              selectColumn.placeholder || "Chọn…"
+                            }
+                          />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selectColumn.options.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                  )}
                   <td className="border-b px-3 py-2 text-center align-middle">
                     <Button
                       type="button"
@@ -128,7 +233,7 @@ function ValueTable({
                         !removable && "opacity-40"
                       )}
                       disabled={!removable}
-                      onClick={() => onRemove(index)}
+                      onClick={() => handleRemove(index)}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -143,9 +248,24 @@ function ValueTable({
   );
 }
 
+type SectionId =
+  | "documentCategories"
+  | "contractTypes"
+  | "contractNames"
+  | "businessEntities"
+  | "contractBases"
+  | "discountOptions";
+
 export function FormListsPanel() {
   const { toast } = useToast();
   const [state, setState] = useState<FormListsState | null>(null);
+  const [openSections, setOpenSections] = useState<
+    Partial<Record<SectionId, boolean>>
+  >({});
+
+  const toggleSection = (id: SectionId) => {
+    setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   useEffect(() => {
     setState(loadFormLists());
@@ -170,7 +290,8 @@ export function FormListsPanel() {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground max-w-2xl">
           Các dropdown trên màn <strong>Tạo tài liệu</strong> lấy dữ liệu từ đây.
-          Mỗi list: cột <strong>Mã</strong> + <strong>Giá trị</strong>.
+          Mỗi list: cột <strong>Mã (Code)</strong> + <strong>Giá trị (Value)</strong>.
+          Nhãn hiển thị song ngữ Việt — Anh. Bấm tiêu đề để thu gọn / mở rộng.
         </p>
         <Button
           type="button"
@@ -187,9 +308,12 @@ export function FormListsPanel() {
       </div>
 
       <Section
-        title="Loại tài liệu"
-        field="Chọn loại tài liệu"
-        description="Dropdown bắt buộc khi tạo review."
+        id="documentCategories"
+        title="Loại hợp đồng (Contract category)"
+        field="Loại hợp đồng (Contract category)"
+        description="Dropdown bắt buộc khi tạo review (HQP, RAW, MRO, CAPEX, LOG)."
+        open={!!openSections.documentCategories}
+        onToggle={() => toggleSection("documentCategories")}
       >
         <ValueTable
           rows={state.documentCategories.map((c) => ({
@@ -230,7 +354,7 @@ export function FormListsPanel() {
             size="sm"
             onClick={() => {
               const n = state.documentCategories.length + 1;
-              const label = `Loại tài liệu mới ${n}`;
+              const label = `Loại hợp đồng (Contract category) mới ${n}`;
               setState({
                 ...state,
                 documentCategories: [
@@ -262,9 +386,12 @@ export function FormListsPanel() {
       </Section>
 
       <Section
-        title="Loại hợp đồng"
-        field="Loại hợp đồng (Contract type)"
-        description="Dropdown trên form tạo. Checklist / Matrix chi tiết ở Cấu hình loại HĐ."
+        id="contractTypes"
+        title="Loại giá trị hợp đồng (Contract value type)"
+        field="Loại giá trị hợp đồng (Contract value type)"
+        description="Nguồn dropdown cùng tên trên form Tạo tài liệu. Checklist / Matrix chi tiết ở Cấu hình loại HĐ."
+        open={!!openSections.contractTypes}
+        onToggle={() => toggleSection("contractTypes")}
       >
         <ValueTable
           rows={state.contractTypes.map((t) => ({
@@ -277,7 +404,8 @@ export function FormListsPanel() {
             const contractTypes = [...state.contractTypes];
             contractTypes[index] = {
               ...contractTypes[index],
-              id: code.trim() || contractTypes[index].id,
+              // Không trim khi gõ — trim lúc Lưu (tránh nhảy con trỏ / mất ký tự).
+              id: code,
             };
             setState({ ...state, contractTypes });
           }}
@@ -303,7 +431,7 @@ export function FormListsPanel() {
             size="sm"
             onClick={() => {
               const n = state.contractTypes.length + 1;
-              const label = `Loại HĐ mới ${n}`;
+              const label = `Loại giá trị HĐ mới ${n}`;
               setState({
                 ...state,
                 contractTypes: [
@@ -329,35 +457,41 @@ export function FormListsPanel() {
             onClick={() =>
               persist({
                 ...state,
-                contractTypes: state.contractTypes.filter(
-                  (t) => t.label.trim() && t.id.trim()
-                ),
+                contractTypes: state.contractTypes
+                  .map((t) => ({ ...t, id: t.id.trim(), label: t.label.trim() }))
+                  .filter((t) => t.label && t.id),
               })
             }
           >
             <Save className="mr-2 h-4 w-4" />
             Lưu
           </Button>
-          <Button type="button" variant="outline" size="sm" asChild>
-            <Link href="/dashboard/config">
-              <ExternalLink className="mr-2 h-4 w-4" />
-              Checklist / Matrix chi tiết
-            </Link>
-          </Button>
         </div>
       </Section>
 
       <Section
+        id="contractNames"
         title="Tên hợp đồng (Contract name)"
         field="Tên hợp đồng (Contract name)"
-        description="Dropdown bắt buộc trên form tạo review."
+        description="Dropdown bắt buộc trên form tạo review — lọc theo Loại hợp đồng / Contract category (HQP, RAW, MRO, CAPEX, LOG)."
+        open={!!openSections.contractNames}
+        onToggle={() => toggleSection("contractNames")}
       >
         <ValueTable
           rows={state.contractNames.map((n) => ({
             key: n.id,
             code: n.code,
             value: n.label,
+            selectValue: n.documentCategoryId,
           }))}
+          selectColumn={{
+            header: "Loại hợp đồng (Contract category)",
+            placeholder: "Chọn loại (vd. CAPEX)",
+            options: state.documentCategories.map((c) => ({
+              value: c.id,
+              label: c.label,
+            })),
+          }}
           canRemove={() => state.contractNames.length > 1}
           onChangeCode={(index, code) => {
             const contractNames = [...state.contractNames];
@@ -367,6 +501,14 @@ export function FormListsPanel() {
           onChangeValue={(index, value) => {
             const contractNames = [...state.contractNames];
             contractNames[index] = { ...contractNames[index], label: value };
+            setState({ ...state, contractNames });
+          }}
+          onChangeSelect={(index, documentCategoryId) => {
+            const contractNames = [...state.contractNames];
+            contractNames[index] = {
+              ...contractNames[index],
+              documentCategoryId,
+            };
             setState({ ...state, contractNames });
           }}
           onRemove={(index) => {
@@ -384,6 +526,10 @@ export function FormListsPanel() {
             onClick={() => {
               const n = state.contractNames.length + 1;
               const label = `Tên hợp đồng ${n}`;
+              const defaultCat =
+                state.documentCategories[0]?.id ||
+                state.contractNames[0]?.documentCategoryId ||
+                "";
               setState({
                 ...state,
                 contractNames: [
@@ -392,6 +538,7 @@ export function FormListsPanel() {
                     id: slugId("cn", label),
                     code: `CN${n}`,
                     label,
+                    documentCategoryId: defaultCat,
                   },
                 ],
               });
@@ -407,7 +554,10 @@ export function FormListsPanel() {
               persist({
                 ...state,
                 contractNames: state.contractNames.filter(
-                  (n) => n.label.trim() && n.code.trim()
+                  (n) =>
+                    n.label.trim() &&
+                    n.code.trim() &&
+                    n.documentCategoryId.trim()
                 ),
               })
             }
@@ -419,9 +569,12 @@ export function FormListsPanel() {
       </Section>
 
       <Section
-        title="Business Entity"
-        field="Business Entity"
+        id="businessEntities"
+        title="Công ty (Business Entity)"
+        field="Công ty (Business Entity)"
         description="Dropdown bắt buộc trên form tạo review."
+        open={!!openSections.businessEntities}
+        onToggle={() => toggleSection("businessEntities")}
       >
         <ValueTable
           rows={state.businessEntities.map((e) => ({
@@ -459,7 +612,7 @@ export function FormListsPanel() {
             size="sm"
             onClick={() => {
               const n = state.businessEntities.length + 1;
-              const label = `Business Entity ${n}`;
+              const label = `Công ty mới ${n}`;
               setState({
                 ...state,
                 businessEntities: [
@@ -495,9 +648,12 @@ export function FormListsPanel() {
       </Section>
 
       <Section
-        title="Contract base"
-        field="Contract base"
+        id="contractBases"
+        title="Hợp đồng tiêu chuẩn (Standard contract)"
+        field="Hợp đồng tiêu chuẩn (Standard contract)"
         description="Dropdown bắt buộc trên form tạo review."
+        open={!!openSections.contractBases}
+        onToggle={() => toggleSection("contractBases")}
       >
         <ValueTable
           rows={state.contractBases.map((b) => ({
@@ -530,7 +686,7 @@ export function FormListsPanel() {
             size="sm"
             onClick={() => {
               const n = state.contractBases.length + 1;
-              const label = `Contract base ${n}`;
+              const label = `Hợp đồng tiêu chuẩn mới ${n}`;
               setState({
                 ...state,
                 contractBases: [
@@ -566,9 +722,12 @@ export function FormListsPanel() {
       </Section>
 
       <Section
-        title="Hợp đồng có chiết khấu"
-        field="Hợp đồng có chiết khấu"
-        description="Mã nội bộ (yes/no) cố định — chỉnh nhãn hiển thị ở Giá trị."
+        id="discountOptions"
+        title="Hợp đồng có chiết khấu (Has discount)"
+        field="Hợp đồng có chiết khấu (Has discount)"
+        description="Mã nội bộ (yes/no) cố định — chỉnh nhãn hiển thị ở Giá trị (Value)."
+        open={!!openSections.discountOptions}
+        onToggle={() => toggleSection("discountOptions")}
       >
         <ValueTable
           rows={state.discountOptions.map((d) => ({

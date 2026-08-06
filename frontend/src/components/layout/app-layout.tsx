@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  FileCode2,
   FileText,
   Gavel,
   LayoutDashboard,
@@ -12,14 +11,17 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
-  PlusCircle,
-  Settings2,
+  Users,
 } from "lucide-react";
 import { clearSession, getSession } from "@/lib/review-service";
 import type { UserSession } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { canAccessLegalInbox } from "@/lib/roles";
+import {
+  canAccessContractsList,
+  canAccessTasks,
+  canAccessUsers,
+} from "@/lib/roles";
 
 const SIDEBAR_KEY = "ai_econtract_sidebar_collapsed";
 
@@ -71,32 +73,33 @@ export default function AppLayout({
     router.push("/login");
   };
 
-  const purchasingNav = [
-    { name: "Danh sách HĐ", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Tạo tài liệu", href: "/dashboard/contracts/new", icon: PlusCircle },
-  ];
+  const contractsLabel =
+    user?.role === "legal" || user?.role === "legal_lead" || user?.role === "it"
+      ? "Tất cả hợp đồng"
+      : "Danh sách HĐ";
 
-  const legalNav = [
-    { name: "Hộp duyệt Legal", href: "/dashboard/legal", icon: Gavel },
-    { name: "Tất cả hợp đồng", href: "/dashboard", icon: FileText },
-    { name: "Cấu hình loại HĐ", href: "/dashboard/config", icon: Settings2 },
+  const navigation = [
+    ...(canAccessTasks(user)
+      ? [{ name: "Task", href: "/dashboard/tasks", icon: Gavel }]
+      : []),
+    ...(canAccessContractsList(user)
+      ? [
+          {
+            name: contractsLabel,
+            href: "/dashboard",
+            icon:
+              user?.role === "legal" ||
+              user?.role === "legal_lead" ||
+              user?.role === "it"
+                ? FileText
+                : LayoutDashboard,
+          },
+        ]
+      : []),
+    ...(canAccessUsers(user)
+      ? [{ name: "Users", href: "/dashboard/users", icon: Users }]
+      : []),
   ];
-
-  /** IT: full access + Configurations (form lists + system prompts). */
-  const itNav = [
-    { name: "Hộp duyệt Legal", href: "/dashboard/legal", icon: Gavel },
-    { name: "Tất cả hợp đồng", href: "/dashboard", icon: FileText },
-    { name: "Tạo tài liệu", href: "/dashboard/contracts/new", icon: PlusCircle },
-    { name: "Cấu hình loại HĐ", href: "/dashboard/config", icon: Settings2 },
-    { name: "Configurations", href: "/dashboard/configurations", icon: FileCode2 },
-  ];
-
-  const navigation =
-    user?.role === "it"
-      ? itNav
-      : canAccessLegalInbox(user?.role)
-        ? legalNav
-        : purchasingNav;
 
   if (!user) {
     return (
@@ -113,24 +116,12 @@ export default function AppLayout({
         lockViewport ? "h-dvh overflow-hidden" : "min-h-screen"
       )}
     >
-      {/* Mobile open */}
-      <div className="lg:hidden fixed top-0 left-0 m-4 z-50">
-        <button
-          type="button"
-          onClick={() => setMobileOpen(!mobileOpen)}
-          className="p-2 rounded-md bg-primary text-primary-foreground"
-          aria-label="Mở menu"
-        >
-          <Menu className="h-6 w-6" />
-        </button>
-      </div>
-
       {/* Desktop collapse toggle (when sidebar collapsed — floating) */}
       {collapsed && (
         <button
           type="button"
           onClick={toggleCollapsed}
-          className="hidden lg:flex fixed top-4 left-3 z-50 h-9 w-9 items-center justify-center rounded-md border bg-card shadow-sm hover:bg-accent"
+          className="hidden lg:flex fixed top-3.5 left-3 z-50 h-9 w-9 items-center justify-center rounded-md border bg-card shadow-sm hover:bg-accent"
           title="Mở rộng sidebar"
           aria-label="Mở rộng sidebar"
         >
@@ -142,7 +133,6 @@ export default function AppLayout({
         className={cn(
           "fixed inset-y-0 left-0 z-40 bg-card border-r transition-all duration-200 ease-in-out",
           collapsed ? "w-16" : "w-64",
-          // mobile: slide
           mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
@@ -156,7 +146,10 @@ export default function AppLayout({
             <img
               src="/logo.png"
               alt="Saint-Gobain"
-              className={cn("rounded-lg shrink-0", collapsed ? "w-9 h-9" : "w-12 h-12")}
+              className={cn(
+                "rounded-lg shrink-0",
+                collapsed ? "w-9 h-9" : "w-12 h-12"
+              )}
             />
             {!collapsed && (
               <div className="min-w-0 flex-1">
@@ -181,7 +174,9 @@ export default function AppLayout({
             )}
           </div>
 
-          <nav className={cn("flex-1 space-y-1 py-4", collapsed ? "px-2" : "px-3")}>
+          <nav
+            className={cn("flex-1 space-y-1 py-4", collapsed ? "px-2" : "px-3")}
+          >
             {navigation.map((item) => {
               const active =
                 item.href === "/dashboard"
@@ -201,36 +196,14 @@ export default function AppLayout({
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
                   )}
                 >
-                  <item.icon className={cn("h-5 w-5 shrink-0", !collapsed && "mr-3")} />
+                  <item.icon
+                    className={cn("h-5 w-5 shrink-0", !collapsed && "mr-3")}
+                  />
                   {!collapsed && <span className="truncate">{item.name}</span>}
                 </Link>
               );
             })}
           </nav>
-
-          <div className={cn("border-t space-y-2", collapsed ? "p-2" : "p-4")}>
-            {!collapsed && (
-              <div className="px-1">
-                <div className="text-sm font-medium truncate">{user.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{user.email}</div>
-                <Badge variant="secondary" className="mt-2 capitalize">
-                  {user.role}
-                </Badge>
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={handleLogout}
-              title={collapsed ? "Đăng xuất" : undefined}
-              className={cn(
-                "flex items-center rounded-lg text-sm font-medium text-destructive hover:bg-destructive/10 w-full",
-                collapsed ? "justify-center p-2.5" : "px-3 py-2.5"
-              )}
-            >
-              <LogOut className={cn("h-4 w-4 shrink-0", !collapsed && "mr-3")} />
-              {!collapsed && "Đăng xuất"}
-            </button>
-          </div>
         </div>
       </div>
 
@@ -247,16 +220,47 @@ export default function AppLayout({
       <div
         className={cn(
           "transition-[padding] duration-200 ease-in-out",
-          lockViewport && "h-full",
+          lockViewport && "h-full flex flex-col",
           collapsed ? "lg:pl-16" : "lg:pl-64"
         )}
       >
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between gap-3 border-b bg-card px-4 lg:px-8">
+          <button
+            type="button"
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="lg:hidden inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background"
+            aria-label="Mở menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+
+          <div className="ml-auto flex min-w-0 items-center gap-3">
+            <div className="min-w-0 text-right hidden sm:block">
+              <div className="text-sm font-medium truncate">{user.name}</div>
+              <div className="text-xs text-muted-foreground truncate">
+                {user.email}
+              </div>
+            </div>
+            <Badge variant="secondary" className="capitalize shrink-0">
+              {user.role}
+            </Badge>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 shrink-0"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline">Đăng xuất</span>
+            </button>
+          </div>
+        </header>
+
         <main
           className={cn(
-            "p-4 pt-16 lg:p-8 lg:pt-8",
+            "p-4 lg:p-8",
             lockViewport
-              ? "h-full min-h-0 overflow-hidden flex flex-col"
-              : "min-h-screen",
+              ? "flex-1 min-h-0 overflow-hidden flex flex-col"
+              : "min-h-[calc(100dvh-4rem)]",
             mainClassName
           )}
         >

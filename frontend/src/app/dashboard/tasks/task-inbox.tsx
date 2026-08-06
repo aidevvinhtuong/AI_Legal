@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,11 @@ import {
   IntakeFormFields,
   intakeFromReview,
 } from "@/components/review/intake-form-fields";
-import type { CodeLabelOption, DiscountOption } from "@/lib/form-lists-store";
+import type {
+  CodeLabelOption,
+  ContractNameOption,
+  DiscountOption,
+} from "@/lib/form-lists-store";
 import {
   getSession,
   legalDecide,
@@ -27,13 +31,15 @@ import {
   listDiscountOptions,
   listDocumentCategories,
   listReviews,
+  managerDecide,
 } from "@/lib/review-service";
-import { canAccessLegalInbox } from "@/lib/roles";
+import { subordinateIds } from "@/lib/user-store";
 import type {
   ContractReview,
   ContractTypeConfig,
   DocumentCategory,
   StructuredFeedbackItem,
+  UserSession,
 } from "@/lib/types";
 import {
   ArrowLeft,
@@ -47,14 +53,16 @@ import {
   X,
 } from "lucide-react";
 
-export default function LegalInboxPage() {
+export default function TaskInboxPage() {
   const { toast } = useToast();
+  const router = useRouter();
   const search = useSearchParams();
   const focusId = search.get("focus");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [session, setSession] = useState<UserSession | null>(null);
   const [reviews, setReviews] = useState<ContractReview[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(focusId);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [comment, setComment] = useState("");
@@ -67,9 +75,16 @@ export default function LegalInboxPage() {
     []
   );
   const [contractBases, setContractBases] = useState<CodeLabelOption[]>([]);
-  const [contractNames, setContractNames] = useState<CodeLabelOption[]>([]);
+  const [contractNames, setContractNames] = useState<ContractNameOption[]>([]);
 
-  /** % chiều rộng cột Chat trong tab AI Review (kéo thanh chia để đổi). */
+  /** Task cá nhân theo role. IT (demo) xem tất cả hàng chờ để giả lập Start. */
+  const isIt = session?.role === "it";
+  const isLegalApprover =
+    session?.role === "legal" || session?.role === "legal_lead" || isIt;
+  const isPurchasing = session?.role === "purchasing" || isIt;
+  const isManager = session?.role === "purchasing_manager" || isIt;
+
+  /** % chiều rộng cột Chat trong tab AI Workspace (kéo thanh chia để đổi). */
   const [chatPct, setChatPct] = useState(42);
   const splitRef = useRef<HTMLDivElement>(null);
 
@@ -97,13 +112,7 @@ export default function LegalInboxPage() {
   }, []);
 
   useEffect(() => {
-    const session = getSession();
-    if (session && !canAccessLegalInbox(session.role)) {
-      toast({
-        title: "Chỉ Legal / IT mới vào hộp duyệt",
-        variant: "destructive",
-      });
-    }
+    setSession(getSession());
     Promise.all([
       listReviews(),
       listDocumentCategories(),
@@ -123,16 +132,61 @@ export default function LegalInboxPage() {
         setContractNames(names);
       })
       .finally(() => setLoading(false));
-  }, [toast]);
+  }, []);
 
+  // Legal / Manager mở chi tiết duyệt qua ?focus=
   useEffect(() => {
-    if (focusId) setActiveId(focusId);
+    const role = getSession()?.role;
+    if (
+      focusId &&
+      (role === "legal" ||
+        role === "legal_lead" ||
+        role === "purchasing_manager")
+    ) {
+      setActiveId(focusId);
+    }
   }, [focusId]);
 
-  const pending = useMemo(
-    () => reviews.filter((r) => r.status === "pending_legal"),
-    [reviews]
+  /** Task Legal: ticket pending_legal. */
+  const legalTasks = useMemo(
+    () =>
+      isLegalApprover
+        ? reviews.filter((r) => r.status === "pending_legal")
+        : [],
+    [reviews, isLegalApprover]
   );
+
+  /** Task Manager: pending_manager của subordinate (IT demo: mọi pending_manager). */
+  const managerTasks = useMemo(() => {
+    if (!isManager || !session?.userId) return [];
+    if (isIt) {
+      return reviews.filter((r) => r.status === "pending_manager");
+    }
+    const subs = new Set(subordinateIds(session.userId));
+    return reviews.filter(
+      (r) =>
+        r.status === "pending_manager" &&
+        r.ownerId &&
+        subs.has(r.ownerId)
+    );
+  }, [reviews, isManager, isIt, session]);
+
+  /** Task Purchasing: rejected của chính user (IT demo: mọi rejected). */
+  const purchasingTasks = useMemo(() => {
+    if (!isPurchasing || !session?.userId) return [];
+    if (isIt) {
+      return reviews.filter((r) => r.status === "rejected");
+    }
+    return reviews.filter(
+      (r) =>
+        r.status === "rejected" &&
+        (r.ownerId === session.userId ||
+          (!r.ownerId &&
+            (r.ownerName.includes(session.name) ||
+              r.ownerName.includes(session.username))))
+    );
+  }, [reviews, isPurchasing, isIt, session]);
+
   const active = reviews.find((r) => r.id === activeId) || null;
 
   const intakeValue = useMemo(
@@ -165,32 +219,44 @@ export default function LegalInboxPage() {
       });
       return;
     }
-    const feedback: StructuredFeedbackItem[] =
-      decision === "reject"
-        ? [
-            {
-              id: `fb_${Date.now()}`,
-              clauseLabel: "Legal feedback",
-              comment: comment.trim(),
-              done: false,
-              attachments: uploadFiles.map((f) => ({
-                name: f.name,
-                size: f.size,
-              })),
-            },
-          ]
-        : [];
     setActing(true);
     try {
-      const updated = await legalDecide(active.id, decision, feedback);
+      let updated: ContractReview;
+      if (active.status === "pending_manager") {
+        updated = await managerDecide(active.id, decision, comment.trim());
+        toast({
+          title: decision === "approve" ? "Manager đã duyệt" : "Manager đã từ chối",
+          description:
+            decision === "approve"
+              ? "Ticket chuyển sang hàng chờ Legal."
+              : "Ticket trả về Task của Purchasing.",
+        });
+      } else {
+        const feedback: StructuredFeedbackItem[] =
+          decision === "reject"
+            ? [
+                {
+                  id: `fb_${Date.now()}`,
+                  clauseLabel: "Legal feedback",
+                  comment: comment.trim(),
+                  done: false,
+                  attachments: uploadFiles.map((f) => ({
+                    name: f.name,
+                    size: f.size,
+                  })),
+                },
+              ]
+            : [];
+        updated = await legalDecide(active.id, decision, feedback);
+        toast({
+          title: decision === "approve" ? "Đã phê duyệt" : "Đã từ chối",
+          description:
+            decision === "approve"
+              ? "Hệ thống đang đồng bộ sang Econtract (mock)."
+              : "Ticket sẽ xuất hiện trong màn Task của Purchasing.",
+        });
+      }
       setReviews((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
-      toast({
-        title: decision === "approve" ? "Đã phê duyệt" : "Đã từ chối",
-        description:
-          decision === "approve"
-            ? "Hệ thống đang đồng bộ sang Econtract (mock callback)."
-            : "Purchasing sẽ thấy checklist việc cần sửa.",
-      });
       backToList();
     } catch (e) {
       toast({
@@ -213,30 +279,50 @@ export default function LegalInboxPage() {
     );
   }
 
-  /* ------- Bước 1: danh sách ticket cần review ------- */
+  /* ------- Bước 1: danh sách task của chính user (task cá nhân) ------- */
   if (!active) {
+    const totalTasks =
+      legalTasks.length + managerTasks.length + purchasingTasks.length;
     return (
       <AppLayout>
         <div className="space-y-4">
           <div>
-            <h1 className="text-2xl font-semibold">Hộp duyệt Legal</h1>
+            <h1 className="text-2xl font-semibold">Task</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Danh sách ticket chờ review — bấm Start để bắt đầu xử lý.
+              Danh sách ticket cần bạn xử lý — bấm <strong>Start</strong> để mở
+              chi tiết và duyệt / xử lý.
+              {isIt && (
+                <span className="block mt-1 text-amber-700">
+                  Demo IT: đang hiển thị mọi hàng chờ (Legal / Manager /
+                  Purchasing). Tài khoản thật:{" "}
+                  <code className="text-xs">legal</code>,{" "}
+                  <code className="text-xs">manager.pur</code>,{" "}
+                  <code className="text-xs">van.a</code> / demo123.
+                </span>
+              )}
             </p>
           </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                Chờ duyệt ({pending.length})
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {pending.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Không có HĐ đang chờ.
+          {totalTasks === 0 && (
+            <Card>
+              <CardContent className="py-12 text-center text-sm text-muted-foreground space-y-2">
+                <p>Bạn không có task nào cần xử lý.</p>
+                <p className="text-xs">
+                  Thử đăng nhập <code>legal</code> / <code>manager.pur</code> /{" "}
+                  <code>van.a</code> (mk: demo123) để thấy task giả lập.
                 </p>
-              ) : (
+              </CardContent>
+            </Card>
+          )}
+
+          {managerTasks.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Chờ Manager duyệt ({managerTasks.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
@@ -246,7 +332,53 @@ export default function LegalInboxPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {pending.map((r) => (
+                      {managerTasks.map((r) => (
+                        <tr
+                          key={r.id}
+                          className="border-b last:border-0 hover:bg-muted/40"
+                        >
+                          <td className="py-3 pr-4">
+                            <div className="font-medium">
+                              {r.intake?.documentName || r.title}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {r.code} · {r.contractTypeLabel} · Owner:{" "}
+                              {r.ownerName}
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <Button size="sm" onClick={() => setActiveId(r.id)}>
+                              <Play className="h-3.5 w-3.5 mr-1.5" />
+                              Start
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {legalTasks.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Chờ Legal duyệt ({legalTasks.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                        <th className="py-2.5 pr-4 font-medium">Name</th>
+                        <th className="py-2.5 w-32 font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {legalTasks.map((r) => (
                         <tr
                           key={r.id}
                           className="border-b last:border-0 hover:bg-muted/40"
@@ -270,15 +402,70 @@ export default function LegalInboxPage() {
                     </tbody>
                   </table>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
+
+          {purchasingTasks.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Bị từ chối — cần xử lý ({purchasingTasks.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs uppercase text-muted-foreground">
+                        <th className="py-2.5 pr-4 font-medium">Name</th>
+                        <th className="py-2.5 w-32 font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {purchasingTasks.map((r) => (
+                        <tr
+                          key={r.id}
+                          className="border-b last:border-0 hover:bg-muted/40"
+                        >
+                          <td className="py-3 pr-4">
+                            <div className="font-medium">
+                              {r.intake?.documentName || r.title}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {r.code} · {r.contractTypeLabel}
+                              {r.feedback?.[0]?.comment && (
+                                <span className="block mt-0.5 text-destructive/80 truncate max-w-md">
+                                  Feedback: {r.feedback[0].comment}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3">
+                            <Button
+                              size="sm"
+                              onClick={() =>
+                                router.push(`/dashboard/contracts/${r.id}`)
+                              }
+                            >
+                              <Play className="h-3.5 w-3.5 mr-1.5" />
+                              Start
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </AppLayout>
     );
   }
 
-  /* ------- Bước 2: chi tiết ticket review (tab Thông tin chung / AI Review) ------- */
+  /* ------- Bước 2 (Legal): chi tiết ticket review (tab Thông tin chung / AI Workspace) ------- */
   const attachments = active.attachments?.length
     ? active.attachments
     : [
@@ -320,7 +507,7 @@ export default function LegalInboxPage() {
             </TabsTrigger>
             <TabsTrigger value="ai-review" className="gap-1.5 px-4">
               <Sparkles className="h-3.5 w-3.5" />
-              AI Review
+              AI Workspace
             </TabsTrigger>
           </TabsList>
 
@@ -391,7 +578,11 @@ export default function LegalInboxPage() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-base">Quyết định của Legal</CardTitle>
+                <CardTitle className="text-base">
+                  {active.status === "pending_manager"
+                    ? "Quyết định của Purchasing Manager"
+                    : "Quyết định của Legal"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
@@ -475,7 +666,9 @@ export default function LegalInboxPage() {
                     ) : (
                       <Check className="h-4 w-4 mr-2" />
                     )}
-                    Phê duyệt → Econtract
+                    {active.status === "pending_manager"
+                      ? "Phê duyệt → Legal"
+                      : "Phê duyệt → Econtract"}
                   </Button>
                 </div>
               </CardContent>

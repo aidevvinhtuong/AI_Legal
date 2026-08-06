@@ -10,6 +10,8 @@ import {
   buildDefaultContractInsight,
   emptyContractInsight,
 } from "@/lib/contract-insight";
+import { syncDocSeqFromReviews } from "@/lib/document-number";
+import { defaultPermissionsForRole } from "@/lib/permissions";
 
 const SAMPLE_DOCX = "/samples/Template_HDDV_chung_2026.docx";
 
@@ -89,13 +91,13 @@ export function buildAttachments(input: {
   });
 }
 
-/** Loại tài liệu (dropdown "Chọn loại tài liệu" trên mockup). */
+/** Loại hợp đồng (Contract category) — HQP / RAW / MRO / CAP / LOG. */
 export const DOCUMENT_CATEGORIES: DocumentCategory[] = [
-  { id: "log_vts", label: "Logistic (LOG) - VTS", code: "LOG" },
-  { id: "pur_goods", label: "Purchasing (PUR) - Goods", code: "PUR" },
-  { id: "pur_service", label: "Purchasing (PUR) - Service", code: "PUR" },
-  { id: "capex", label: "CAPEX - Investment", code: "CAPEX" },
-  { id: "nda", label: "NDA - Bảo mật", code: "NDA" },
+  { id: "hqp", label: "HQP", code: "HQP" },
+  { id: "raw", label: "RAW", code: "RAW" },
+  { id: "mro", label: "MRO", code: "MRO" },
+  { id: "cap", label: "CAPEX (CAP)", code: "CAP" },
+  { id: "log", label: "LOG", code: "LOG" },
 ];
 
 export const CONTRACT_TYPES: ContractTypeConfig[] = [
@@ -225,13 +227,17 @@ export function createMockReview(partial?: Partial<ContractReview>): ContractRev
   return {
     id,
     documentId: partial?.documentId || "",
-    code: partial?.code || `PR-2026-${String(Math.floor(Math.random() * 900) + 100)}`,
+    code:
+      partial?.code !== undefined
+        ? partial.code
+        : `PR-2026-${String(Math.floor(Math.random() * 900) + 100)}`,
     title: partial?.title || "Hợp đồng mua vật tư Q3",
     contractTypeId: partial?.contractTypeId || "framework_goods",
     contractTypeLabel: partial?.contractTypeLabel || "Hợp đồng khung mua hàng",
     group: partial?.group || "framework",
     status: partial?.status || "reviewed",
-    ownerName: partial?.ownerName || "Nguyễn Văn A (Purchasing)",
+    ownerName: partial?.ownerName || "van.a (Purchasing)",
+    ownerId: partial?.ownerId ?? "usr_purchasing_a",
     originalDocxUrl: partial?.originalDocxUrl || attachments[0]?.originalDocxUrl,
     reviewedDocxUrl: partial?.reviewedDocxUrl || attachments[0]?.reviewedDocxUrl,
     prompt: partial?.prompt || "Ưu tiên bảo vệ bên mua, kiểm tra thanh toán và chấm dứt.",
@@ -415,37 +421,63 @@ export function createMockReview(partial?: Partial<ContractReview>): ContractRev
   };
 }
 
-export const MOCK_USERS: Record<string, UserSession> = {
+export const MOCK_USERS = {
   purchasing: {
     token: "mock-purchasing-token",
-    name: "Nguyễn Văn A",
+    userId: "usr_purchasing_a",
+    username: "van.a",
+    name: "van.a",
     email: "purchasing@saint-gobain.com",
     role: "purchasing",
+    department: "Purchasing",
+    permissions: defaultPermissionsForRole("purchasing"),
+  },
+  purchasing_manager: {
+    token: "mock-pm-token",
+    userId: "usr_manager_pur",
+    username: "manager.pur",
+    name: "manager.pur",
+    email: "manager.pur@saint-gobain.com",
+    role: "purchasing_manager",
+    department: "Purchasing",
+    permissions: defaultPermissionsForRole("purchasing_manager"),
   },
   legal: {
     token: "mock-legal-token",
-    name: "Trần Thị Legal",
+    userId: "usr_legal",
+    username: "legal",
+    name: "legal",
     email: "legal@saint-gobain.com",
     role: "legal",
+    department: "Legal",
+    permissions: defaultPermissionsForRole("legal"),
   },
   legal_lead: {
     token: "mock-legal-lead-token",
-    name: "Trần Thị Legal Lead",
+    userId: "usr_legal_lead",
+    username: "legal.lead",
+    name: "legal.lead",
     email: "legal.lead@saint-gobain.com",
     role: "legal_lead",
+    department: "Legal",
+    permissions: defaultPermissionsForRole("legal_lead"),
   },
   it: {
     token: "mock-it-token",
-    name: "Lê Văn IT",
-    email: "it@saint-gobain.com",
+    userId: "usr_admin",
+    username: "admin",
+    name: "admin",
+    email: "admin@saint-gobain.com",
     role: "it",
+    department: "IT",
+    permissions: defaultPermissionsForRole("it"),
   },
-};
+} satisfies Record<string, UserSession>;
 
 const seedReviews: ContractReview[] = [
   createMockReview({
     id: "rev_demo_1",
-    code: "PR-2026-101",
+    code: "SGVN.RAW.260001",
     title: "HĐ khung vật tư Q3 — Demo",
     status: "reviewed",
     fileName: "HD_Khung_VatTu_Q3.docx",
@@ -453,13 +485,13 @@ const seedReviews: ContractReview[] = [
     originalDocxUrl: SAMPLE_DOCX,
     reviewedDocxUrl: SAMPLE_DOCX,
     intake: {
-      documentCategoryId: "pur_goods",
-      documentCategoryLabel: "Purchasing (PUR) - Goods",
+      documentCategoryId: "raw",
+      documentCategoryLabel: "RAW",
       documentName: "HĐ khung vật tư Q3 — Demo",
-      documentNumber: "PR-2026-101",
+      documentNumber: "SGVN.RAW.260001",
       signingDate: "2026-08-01",
-      contractNameId: "cn_hdk",
-      contractNameLabel: "Hợp đồng khung",
+      contractNameId: "cn_raw_raw_nvl",
+      contractNameLabel: "Nguyên vật liệu",
       businessEntityId: "be_sgvn",
       businessEntityLabel: "Saint-Gobain Vietnam",
       contractBaseId: "cb_framework",
@@ -471,7 +503,7 @@ const seedReviews: ContractReview[] = [
   }),
   createMockReview({
     id: "rev_demo_2",
-    code: "PR-2026-102",
+    code: "VTS.LOG.260001",
     title: "HĐ NCC thiết bị IT / Template HDDV chung 2026",
     contractTypeId: "vendor_po",
     contractTypeLabel: "Hợp đồng NCC / PO",
@@ -540,13 +572,13 @@ const seedReviews: ContractReview[] = [
       },
     ],
     intake: {
-      documentCategoryId: "log_vts",
-      documentCategoryLabel: "Logistic (LOG) - VTS",
+      documentCategoryId: "log",
+      documentCategoryLabel: "LOG",
       documentName: "HĐ NCC thiết bị IT / Template HDDV chung 2026",
-      documentNumber: "PR-2026-102",
+      documentNumber: "VTS.LOG.260001",
       signingDate: "2026-07-15",
-      contractNameId: "cn_hddv",
-      contractNameLabel: "Hợp đồng dịch vụ",
+      contractNameId: "cn_log_log_trans",
+      contractNameLabel: "Vận chuyển",
       businessEntityId: "be_vts",
       businessEntityLabel: "Vinh Tuong Saint-Gobain",
       contractBaseId: "cb_po",
@@ -558,7 +590,7 @@ const seedReviews: ContractReview[] = [
   }),
   createMockReview({
     id: "rev_demo_3",
-    code: "PR-2026-103",
+    code: "SGVN.HQP.260001",
     title: "HĐ khung dịch vụ bảo trì",
     contractTypeId: "framework_service",
     contractTypeLabel: "Hợp đồng khung dịch vụ",
@@ -566,13 +598,13 @@ const seedReviews: ContractReview[] = [
     confidence: 64,
     fileNames: ["HD_Khung_DichVu_BaoTri.docx"],
     intake: {
-      documentCategoryId: "pur_service",
-      documentCategoryLabel: "Purchasing (PUR) - Service",
+      documentCategoryId: "hqp",
+      documentCategoryLabel: "HQP",
       documentName: "HĐ khung dịch vụ bảo trì",
-      documentNumber: "PR-2026-103",
+      documentNumber: "SGVN.HQP.260001",
       signingDate: "2026-06-20",
-      contractNameId: "cn_hddv",
-      contractNameLabel: "Hợp đồng dịch vụ",
+      contractNameId: "cn_hqp_hqp_sw",
+      contractNameLabel: "Phần Mềm & Hệ thống",
       businessEntityId: "be_sgvn",
       businessEntityLabel: "Saint-Gobain Vietnam",
       contractBaseId: "cb_framework",
@@ -597,10 +629,13 @@ const seedReviews: ContractReview[] = [
       },
     ],
   }),
+  /** Demo Task — Legal (login: legal / demo123) → Start */
   createMockReview({
-    id: "rev_demo_pending_1",
-    code: "PR-2026-201",
-    title: "HĐ khung vật tư Q4 — chờ Legal duyệt",
+    id: "rev_task_legal_1",
+    code: "SGVN.RAW.260002",
+    title: "HĐ khung vật tư Q4",
+    ownerId: "usr_purchasing_a",
+    ownerName: "van.a (Purchasing)",
     status: "pending_legal",
     confidence: 78,
     fileName: "HD_Khung_VatTu_Q4.docx",
@@ -608,13 +643,13 @@ const seedReviews: ContractReview[] = [
     originalDocxUrl: SAMPLE_DOCX,
     reviewedDocxUrl: SAMPLE_DOCX,
     intake: {
-      documentCategoryId: "pur_goods",
-      documentCategoryLabel: "Purchasing (PUR) - Goods",
-      documentName: "HĐ khung vật tư Q4 — chờ Legal duyệt",
-      documentNumber: "PR-2026-201",
+      documentCategoryId: "raw",
+      documentCategoryLabel: "RAW",
+      documentName: "HĐ khung vật tư Q4",
+      documentNumber: "SGVN.RAW.260002",
       signingDate: "2026-10-01",
-      contractNameId: "cn_hdmh",
-      contractNameLabel: "Hợp đồng mua hàng",
+      contractNameId: "cn_raw_raw_trading",
+      contractNameLabel: "Hàng trading",
       businessEntityId: "be_sgvn",
       businessEntityLabel: "Saint-Gobain Vietnam",
       contractBaseId: "cb_framework",
@@ -624,27 +659,30 @@ const seedReviews: ContractReview[] = [
       contractValue: "3.200.000.000",
     },
   }),
+  /** Demo Task — Purchasing Manager (login: manager.pur / demo123) → Start */
   createMockReview({
-    id: "rev_demo_pending_2",
-    code: "PR-2026-202",
-    title: "HĐ NCC linh kiện điện — chờ Legal duyệt",
+    id: "rev_task_manager_1",
+    code: "VTS.LOG.260002",
+    title: "HĐ NCC linh kiện điện",
+    ownerId: "usr_purchasing_a",
+    ownerName: "van.a (Purchasing)",
     contractTypeId: "vendor_po",
     contractTypeLabel: "Hợp đồng NCC / PO",
     group: "vendor",
-    status: "pending_legal",
+    status: "pending_manager",
     confidence: 72,
     fileName: "HD_NCC_LinhKien_Dien.docx",
     fileNames: ["HD_NCC_LinhKien_Dien.docx"],
     originalDocxUrl: SAMPLE_DOCX,
     reviewedDocxUrl: SAMPLE_DOCX,
     intake: {
-      documentCategoryId: "log_vts",
-      documentCategoryLabel: "Logistic (LOG) - VTS",
-      documentName: "HĐ NCC linh kiện điện — chờ Legal duyệt",
-      documentNumber: "PR-2026-202",
+      documentCategoryId: "log",
+      documentCategoryLabel: "LOG",
+      documentName: "HĐ NCC linh kiện điện",
+      documentNumber: "VTS.LOG.260002",
       signingDate: "2026-09-20",
-      contractNameId: "cn_hdmh",
-      contractNameLabel: "Hợp đồng mua hàng",
+      contractNameId: "cn_log_log_trans",
+      contractNameLabel: "Vận chuyển",
       businessEntityId: "be_vts",
       businessEntityLabel: "Vinh Tuong Saint-Gobain",
       contractBaseId: "cb_po",
@@ -654,9 +692,51 @@ const seedReviews: ContractReview[] = [
       contractValue: "980.000.000",
     },
   }),
+  /** Demo Task — Purchasing bị trả về (login: van.a / demo123) → Start */
+  createMockReview({
+    id: "rev_task_purchasing_1",
+    code: "SGVN.HQP.260002",
+    title: "HĐ dịch vụ IT — Legal trả về",
+    ownerId: "usr_purchasing_a",
+    ownerName: "van.a (Purchasing)",
+    contractTypeId: "vendor_po",
+    contractTypeLabel: "Hợp đồng NCC / PO",
+    group: "vendor",
+    status: "rejected",
+    confidence: 68,
+    fileName: "HD_DichVu_IT_Rev.docx",
+    fileNames: ["HD_DichVu_IT_Rev.docx"],
+    originalDocxUrl: SAMPLE_DOCX,
+    reviewedDocxUrl: SAMPLE_DOCX,
+    intake: {
+      documentCategoryId: "hqp",
+      documentCategoryLabel: "HQP",
+      documentName: "HĐ dịch vụ IT — Legal trả về",
+      documentNumber: "SGVN.HQP.260002",
+      signingDate: "2026-08-15",
+      contractNameId: "cn_hqp_hqp_sw",
+      contractNameLabel: "Phần Mềm & Hệ thống",
+      businessEntityId: "be_sgvn",
+      businessEntityLabel: "Saint-Gobain Vietnam",
+      contractBaseId: "cb_framework",
+      contractBaseLabel: "Framework agreement",
+      hasDiscount: "no",
+      discountDetails: "",
+      contractValue: "450.000.000",
+    },
+    feedback: [
+      {
+        id: "fb_task_pur_1",
+        clauseLabel: "Điều 3 — Thanh toán",
+        comment:
+          "Cần rút thời hạn thanh toán về ≤ 60 ngày và bổ sung phụ lục đơn giá trước khi gửi lại.",
+        done: false,
+      },
+    ],
+  }),
   createMockReview({
     id: "rev_demo_draft_hddv",
-    code: "PR-2026-DRAFT-001",
+    code: "",
     title: "HĐVT LOG — OceanFreight",
     contractTypeId: "framework_service",
     contractTypeLabel: "Hợp đồng khung dịch vụ",
@@ -829,13 +909,13 @@ const seedReviews: ContractReview[] = [
       ],
     },
     intake: {
-      documentCategoryId: "log_vts",
-      documentCategoryLabel: "Logistic (LOG) - VTS",
+      documentCategoryId: "log",
+      documentCategoryLabel: "LOG",
       documentName: "HĐVT LOG — OceanFreight",
-      documentNumber: "PR-2026-DRAFT-001",
+      documentNumber: "",
       signingDate: "2026-09-15",
-      contractNameId: "cn_hdvt",
-      contractNameLabel: "Hợp đồng vận tải",
+      contractNameId: "cn_log_log_warehouse",
+      contractNameLabel: "Thuê kho",
       businessEntityId: "be_vts",
       businessEntityLabel: "Vinh Tuong Saint-Gobain",
       contractBaseId: "cb_spot",
@@ -847,7 +927,7 @@ const seedReviews: ContractReview[] = [
   }),
 ];
 
-const STORAGE_KEY = "ai_econtract_reviews_v22";
+const STORAGE_KEY = "ai_econtract_reviews_v26";
 
 const seededReviews: ContractReview[] = seedReviews.map((r, i) =>
   ensureVersionHistory({
@@ -936,6 +1016,7 @@ export function loadReviews(): ContractReview[] {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(seededReviews));
+    syncDocSeqFromReviews(seededReviews);
     return seededReviews;
   }
   try {
@@ -945,6 +1026,7 @@ export function loadReviews(): ContractReview[] {
     if (neededIds) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     }
+    syncDocSeqFromReviews(list);
     return list;
   } catch {
     return seededReviews;
