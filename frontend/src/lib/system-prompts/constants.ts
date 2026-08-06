@@ -1,14 +1,12 @@
 export type PipelineStage =
   | "checklist_review"
   | "chat_edit"
-  | "ai_summary_fairness"
-  | "field_validation";
+  | "ai_summary_fairness";
 
 export const PIPELINE_STAGES: PipelineStage[] = [
   "checklist_review",
   "chat_edit",
   "ai_summary_fairness",
-  "field_validation",
 ];
 
 /** Documented placeholders per stage — CI + runtime typo protection. */
@@ -23,13 +21,6 @@ export const STAGE_PLACEHOLDERS: Record<PipelineStage, readonly string[]> = {
   ai_summary_fairness: [
     "contract_type",
     "findings",
-    "approval_matrix_context",
-  ],
-  field_validation: [
-    "contract_type",
-    "field_name",
-    "old_value",
-    "new_value",
     "approval_matrix_context",
   ],
 };

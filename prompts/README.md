@@ -10,7 +10,6 @@ Prompts for the contract-review AI pipeline live **in Git** (`/prompts/<stage>/`
 | `checklist_review/` | First-pass AI review vs checklist | Processing Queue |
 | `chat_edit/` | Follow-up edits from Purchasing chat | Chat panel |
 | `ai_summary_fairness/` | Plain-language summary + fairness scoring inputs | Confidence / insight popup |
-| `field_validation/` | Re-validate after an open field save | Field / Word edit |
 
 ## Shared injection guard
 
@@ -58,16 +57,6 @@ Every prompt may contain `{{placeholder}}` tokens. Only the placeholders listed 
 | `{{contract_type}}` | Contract type id / label |
 | `{{findings}}` | Classified Red Flag / Warning / Protection / Missing Protection list |
 | `{{approval_matrix_context}}` | Approval Matrix tiers / thresholds for scoring context |
-
-### `field_validation`
-
-| Placeholder | Meaning |
-|-------------|---------|
-| `{{contract_type}}` | Contract type id / label |
-| `{{field_name}}` | Open field / Content Control id |
-| `{{old_value}}` | Value before edit |
-| `{{new_value}}` | Value after edit |
-| `{{approval_matrix_context}}` | Approval Matrix context for confidence bump / warning |
 
 ## Hard rules (enforced in CI)
 
