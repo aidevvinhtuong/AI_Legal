@@ -88,6 +88,8 @@ export interface DocumentCategory {
   id: string;
   label: string;
   code: string;
+  /** archived = ẩn khỏi form tạo HĐ; vẫn giữ để HĐ cũ tham chiếu. */
+  status?: "active" | "archived";
 }
 
 export interface ContractTypeConfig {

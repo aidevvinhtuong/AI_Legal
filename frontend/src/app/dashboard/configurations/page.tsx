@@ -1,10 +1,12 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
 import { FormListsPanel } from "@/components/configurations/form-lists-panel";
 import { SystemPromptsPanel } from "@/components/configurations/system-prompts-panel";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import { getSession } from "@/lib/review-service";
@@ -14,7 +16,7 @@ import {
   canAccessSystemPrompts,
 } from "@/lib/roles";
 import type { UserSession } from "@/lib/types";
-import { FileCode2, ListTree, Loader2 } from "lucide-react";
+import { ArrowLeft, FileCode2, ListTree, Loader2 } from "lucide-react";
 
 type ConfigTab = "form-lists" | "system-prompts";
 
@@ -64,12 +66,22 @@ function ConfigurationsContent() {
 
   return (
     <div className="w-full space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Configurations</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Cấu hình dropdown form tạo review và System prompts — theo quyền IT
-          gán trên Users.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Configurations
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Cấu hình dropdown form tạo review và System prompts — theo quyền IT
+            gán trên Users.
+          </p>
+        </div>
+        <Button size="sm" variant="outline" asChild>
+          <Link href="/dashboard">
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+            Quay lại
+          </Link>
+        </Button>
       </div>
 
       <Tabs

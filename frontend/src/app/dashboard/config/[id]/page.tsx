@@ -26,7 +26,6 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import type {
-  ApprovalMatrixConfig,
   ChecklistClause,
   ConfigAuditEntry,
   ContractTypeConfigVersion,
@@ -34,11 +33,12 @@ import type {
 import { isClausePlaybookIncomplete } from "@/lib/config-types";
 import {
   clauseKindLabel,
+  findConfigByBusinessKey,
   getConfigPermission,
   getConfigVersion,
-  linkMatrix,
+  isParentConfig,
   listConfigAudit,
-  listMatrices,
+  mergeParentAndChildConfig,
   removeClause,
   saveConfigDraft,
   severityLabel,
@@ -57,9 +57,19 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 
-const emptyClause = (): ChecklistClause => ({
+/** Sinh mã điều khoản ổn định CL-001, CL-002… (user không sửa). */
+function nextClauseCode(existing: ChecklistClause[]): string {
+  let max = 0;
+  for (const c of existing) {
+    const m = /^CL-(\d+)$/i.exec(c.code.trim());
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `CL-${String(max + 1).padStart(3, "0")}`;
+}
+
+const emptyClause = (code: string, sortOrder: number): ChecklistClause => ({
   id: `c_${Date.now()}`,
-  code: "",
+  code,
   name: "",
   kind: "required",
   severity: "warn_high",
@@ -67,12 +77,11 @@ const emptyClause = (): ChecklistClause => ({
   fallback: "",
   redLine: "",
   rationale: "",
-  approvalLevelOnFallbackBreach: "",
   keywords: [],
   patterns: [],
   enableRuleBased: true,
   enableSemantic: true,
-  sortOrder: 99,
+  sortOrder,
   active: true,
 });
 
@@ -84,23 +93,29 @@ export default function ConfigDetailPage() {
   const perm = getConfigPermission();
 
   const [config, setConfig] = useState<ContractTypeConfigVersion | null>(null);
-  const [matrices, setMatrices] = useState<ApprovalMatrixConfig[]>([]);
   const [audit, setAudit] = useState<ConfigAuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [clauseOpen, setClauseOpen] = useState(false);
   const [editing, setEditing] = useState<ChecklistClause | null>(null);
   const [isNewClause, setIsNewClause] = useState(false);
+  const [parentClauseCount, setParentClauseCount] = useState(0);
+  const [mergedClauseCount, setMergedClauseCount] = useState(0);
 
   const refresh = useCallback(async () => {
-    const [c, m, a] = await Promise.all([
-      getConfigVersion(params.id),
-      listMatrices(),
-      listConfigAudit(),
-    ]);
+    const c = await getConfigVersion(params.id);
+    const a = await listConfigAudit();
     setConfig(c);
-    setMatrices(m);
     setAudit(a.filter((x) => x.contractTypeId === c.contractTypeId));
+    if (isParentConfig(c)) {
+      setParentClauseCount(c.clauses.length);
+      setMergedClauseCount(c.clauses.length);
+    } else {
+      const parent = findConfigByBusinessKey(c.parentCategoryId);
+      const merged = mergeParentAndChildConfig(parent, c);
+      setParentClauseCount(merged.parentClauseCount);
+      setMergedClauseCount(merged.clauses.length);
+    }
   }, [params.id]);
 
   useEffect(() => {
@@ -120,7 +135,15 @@ export default function ConfigDetailPage() {
     !!perm.canEditDraft && config?.lifecycle !== "archived";
 
   const openNewClause = () => {
-    setEditing(emptyClause());
+    if (!config) return;
+    // Tránh trùng mã với checklist cha khi đang soạn overlay con
+    const parentCodes = !isParentConfig(config)
+      ? findConfigByBusinessKey(config.parentCategoryId)?.clauses || []
+      : [];
+    const code = nextClauseCode([...parentCodes, ...config.clauses]);
+    const sortOrder =
+      config.clauses.reduce((m, c) => Math.max(m, c.sortOrder), 0) + 1;
+    setEditing(emptyClause(code, sortOrder));
     setIsNewClause(true);
     setClauseOpen(true);
   };
@@ -133,13 +156,25 @@ export default function ConfigDetailPage() {
 
   const handleSaveClause = async () => {
     if (!editing || !config) return;
-    if (!editing.code.trim() || !editing.name.trim()) {
-      toast({ title: "Thiếu mã / tên điều khoản", variant: "destructive" });
+    if (!editing.name.trim()) {
+      toast({ title: "Thiếu tên điều khoản", variant: "destructive" });
       return;
     }
     setSaving(true);
     try {
-      const updated = await upsertClause(config.id, editing, isNewClause);
+      const parentCodes = !isParentConfig(config)
+        ? findConfigByBusinessKey(config.parentCategoryId)?.clauses || []
+        : [];
+      const payload: ChecklistClause = {
+        ...editing,
+        code: isNewClause
+          ? nextClauseCode([...parentCodes, ...config.clauses])
+          : editing.code,
+        contentControlId: undefined,
+        approvalLevelOnFallbackBreach: undefined,
+        condition: undefined,
+      };
+      const updated = await upsertClause(config.id, payload, isNewClause);
       setConfig(updated);
       setClauseOpen(false);
       toast({ title: isNewClause ? "Đã thêm điều khoản" : "Đã cập nhật điều khoản" });
@@ -190,22 +225,6 @@ export default function ConfigDetailPage() {
     }
   };
 
-  const handleLinkMatrix = async (matrixId: string) => {
-    if (!config || !canEdit) return;
-    const value = matrixId === "__global__" ? null : matrixId;
-    try {
-      setConfig(await linkMatrix(config.id, value));
-      setAudit(await listConfigAudit(config.contractTypeId));
-      toast({ title: "Đã gắn Approval Matrix" });
-    } catch (e) {
-      toast({
-        title: "Lỗi",
-        description: e instanceof Error ? e.message : "Lỗi",
-        variant: "destructive",
-      });
-    }
-  };
-
   if (loading || !config) {
     return (
       <AppLayout>
@@ -230,9 +249,26 @@ export default function ConfigDetailPage() {
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-semibold">{config.label}</h1>
               <span className="text-sm text-muted-foreground">v{config.version}</span>
+              {isParentConfig(config) ? (
+                <Badge variant="secondary">Loại cha — dùng chung</Badge>
+              ) : (
+                <Badge variant="outline">Overlay tên HĐ</Badge>
+              )}
             </div>
             <p className="text-sm text-muted-foreground mt-1">
-              {config.contractTypeId} · cập nhật bởi {config.updatedBy}
+              {isParentConfig(config) ? (
+                <>
+                  Form lists · Loại hợp đồng <strong>{config.contractTypeId}</strong>{" "}
+                  · mọi Tên HĐ con được hưởng · cập nhật bởi {config.updatedBy}
+                </>
+              ) : (
+                <>
+                  Form lists · Loại cha <strong>{config.parentCategoryId}</strong>{" "}
+                  ({parentClauseCount} ĐK) + riêng này ({config.clauses.length}{" "}
+                  ĐK) → AI gộp {mergedClauseCount} · cập nhật bởi{" "}
+                  {config.updatedBy}
+                </>
+              )}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -251,56 +287,11 @@ export default function ConfigDetailPage() {
 
         <Tabs defaultValue="clauses">
           <TabsList>
-            <TabsTrigger value="meta">Thông tin & Matrix</TabsTrigger>
             <TabsTrigger value="clauses">Checklist điều khoản</TabsTrigger>
             <TabsTrigger value="ai">AI 2 tầng</TabsTrigger>
             <TabsTrigger value="template">Template Contract</TabsTrigger>
             <TabsTrigger value="audit">Audit cấu hình</TabsTrigger>
           </TabsList>
-
-          <TabsContent value="meta" className="mt-4 space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Template & cờ loại HĐ</CardTitle>
-              </CardHeader>
-              <CardContent className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Tên hiển thị</Label>
-                  <Input
-                    value={config.label}
-                    disabled={!canEdit}
-                    onChange={(e) => setConfig({ ...config, label: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Approval Matrix áp dụng</Label>
-                  <Select
-                    value={config.approvalMatrixId || "__global__"}
-                    disabled={!canEdit}
-                    onValueChange={handleLinkMatrix}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__global__">
-                        Global mặc định (toàn hệ thống)
-                      </SelectItem>
-                      {matrices.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name} ({m.lifecycle})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Matrix có thể global hoặc gắn theo loại HĐ. Sprint 1 chỉ dùng tính % tin cậy /
-                    cảnh báo — không routing nhiều cấp.
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
 
           <TabsContent value="clauses" className="mt-4">
             <Card>
@@ -308,9 +299,14 @@ export default function ConfigDetailPage() {
                 <div>
                   <CardTitle className="text-base">
                     Checklist ({config.clauses.length})
+                    {!isParentConfig(config) && mergedClauseCount > 0
+                      ? ` · AI gộp ${mergedClauseCount}`
+                      : ""}
                   </CardTitle>
                   <CardDescription>
-                    Mã · loại · severity · Ideal / Fallback / Red Line · keywords · Content Control
+                    {isParentConfig(config)
+                      ? "Dùng chung cho mọi Tên HĐ con · mã tự sinh · Ideal / Fallback / Red Line"
+                      : `Overlay riêng — AI gộp với loại cha (${parentClauseCount} ĐK). Cùng mã → bản này thắng.`}
                   </CardDescription>
                 </div>
                 {canEdit && (
@@ -323,11 +319,15 @@ export default function ConfigDetailPage() {
               <CardContent>
                 {config.clauses.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-6 text-center">
-                    Chưa có điều khoản — AI sẽ chỉ dùng lớp ngữ nghĩa chung (tham khảo).
+                    {isParentConfig(config)
+                      ? "Chưa có điều khoản loại cha — các tên HĐ con chưa kế thừa checklist (AI mang tính tham khảo)."
+                      : parentClauseCount > 0
+                        ? `Chưa có overlay riêng — AI đang dùng ${parentClauseCount} điều khoản từ loại cha.`
+                        : "Chưa có overlay và loại cha cũng trống — AI mang tính tham khảo."}
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[1100px]">
+                    <table className="w-full text-sm min-w-[900px]">
                       <thead>
                         <tr className="border-b text-left text-xs text-muted-foreground">
                           <th className="py-2 pr-2">Mã</th>
@@ -335,8 +335,6 @@ export default function ConfigDetailPage() {
                           <th className="py-2 pr-2">Loại</th>
                           <th className="py-2 pr-2">Severity</th>
                           <th className="py-2 pr-2">Rule / Semantic</th>
-                          <th className="py-2 pr-2">Field CC</th>
-                          <th className="py-2 pr-2">Điều kiện</th>
                           <th className="py-2">Thao tác</th>
                         </tr>
                       </thead>
@@ -347,7 +345,7 @@ export default function ConfigDetailPage() {
                           .map((c) => (
                             <tr key={c.id} className="border-b last:border-0 align-top">
                               <td className="py-2.5 pr-2 font-mono text-xs">{c.code}</td>
-                              <td className="py-2.5 pr-2 max-w-[220px]">
+                              <td className="py-2.5 pr-2 max-w-[280px]">
                                 <div className="font-medium">{c.name}</div>
                                 <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                                   {c.standardText}
@@ -366,15 +364,6 @@ export default function ConfigDetailPage() {
                               <td className="py-2.5 pr-2 text-xs text-muted-foreground">
                                 {c.enableRuleBased ? "RB" : "—"} /{" "}
                                 {c.enableSemantic ? "SEM" : "—"}
-                              </td>
-                              <td className="py-2.5 pr-2 font-mono text-xs">
-                                {c.contentControlId || "—"}
-                              </td>
-                              <td className="py-2.5 pr-2 text-xs text-muted-foreground max-w-[160px]">
-                                {c.condition?.note ||
-                                  (c.condition?.minContractValue
-                                    ? `≥ ${c.condition.minContractValue}`
-                                    : c.condition?.partnerType || "—")}
                               </td>
                               <td className="py-2.5 whitespace-nowrap">
                                 <Button
@@ -679,18 +668,16 @@ export default function ConfigDetailPage() {
           {editing && (
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Mã điều khoản *</Label>
+                <Label>Mã điều khoản</Label>
                 <Input
                   value={editing.code}
-                  disabled={!canEdit || !isNewClause}
-                  onChange={(e) => setEditing({ ...editing, code: e.target.value })}
-                  placeholder="PAY-001"
+                  disabled
+                  readOnly
+                  className="bg-muted font-mono"
                 />
-                {!isNewClause && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Mã điều khoản ổn định — không đổi sau khi tạo.
-                  </p>
-                )}
+                <p className="text-[11px] text-muted-foreground">
+                  Tự sinh (CL-001…) — không chỉnh sửa.
+                </p>
               </div>
               <div className="space-y-1.5">
                 <Label>Tên hiển thị *</Label>
@@ -827,117 +814,6 @@ export default function ConfigDetailPage() {
                         .split("|")
                         .map((s) => s.trim())
                         .filter(Boolean),
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Content Control / Field ID</Label>
-                <Input
-                  disabled={!canEdit}
-                  value={editing.contentControlId || ""}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      contentControlId: e.target.value || undefined,
-                    })
-                  }
-                  placeholder="payment_days"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <Label>Cấp duyệt khi vượt Fallback</Label>
-                  <Link
-                    href="/dashboard/config"
-                    className="text-xs text-[#1F4E79] hover:underline"
-                  >
-                    Xem Ma trận phê duyệt
-                  </Link>
-                </div>
-                <Select
-                  value={editing.approvalLevelOnFallbackBreach || "__none__"}
-                  disabled={!canEdit}
-                  onValueChange={(v) =>
-                    setEditing({
-                      ...editing,
-                      approvalLevelOnFallbackBreach:
-                        v === "__none__" ? "" : v,
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Chọn cấp duyệt" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">— Không chọn —</SelectItem>
-                    {Array.from(
-                      new Set(
-                        matrices.flatMap((m) => m.tiers.map((t) => t.label))
-                      )
-                    ).map((label) => (
-                      <SelectItem key={label} value={label}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Đối tác (điều kiện áp dụng)</Label>
-                <Select
-                  value={editing.condition?.partnerType || "any"}
-                  disabled={!canEdit}
-                  onValueChange={(v) =>
-                    setEditing({
-                      ...editing,
-                      condition: {
-                        ...editing.condition,
-                        partnerType: v as NonNullable<
-                          ChecklistClause["condition"]
-                        >["partnerType"],
-                      },
-                    })
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">Mọi đối tác</SelectItem>
-                    <SelectItem value="foreign_vendor">NCC nước ngoài</SelectItem>
-                    <SelectItem value="domestic_vendor">NCC trong nước</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>GT HĐ tối thiểu (VND)</Label>
-                <Input
-                  type="number"
-                  disabled={!canEdit}
-                  value={editing.condition?.minContractValue ?? ""}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      condition: {
-                        ...editing.condition,
-                        minContractValue: e.target.value
-                          ? Number(e.target.value)
-                          : undefined,
-                      },
-                    })
-                  }
-                />
-              </div>
-              <div className="space-y-1.5 sm:col-span-2">
-                <Label>Ghi chú điều kiện áp dụng</Label>
-                <Input
-                  disabled={!canEdit}
-                  value={editing.condition?.note || ""}
-                  onChange={(e) =>
-                    setEditing({
-                      ...editing,
-                      condition: { ...editing.condition, note: e.target.value },
                     })
                   }
                 />

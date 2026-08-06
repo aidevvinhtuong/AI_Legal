@@ -3,10 +3,16 @@
  * Persist mock qua localStorage.
  */
 
-import { CONTRACT_TYPES, DOCUMENT_CATEGORIES } from "@/lib/mock-data";
+import {
+  CONTRACT_TYPES,
+  DOCUMENT_CATEGORIES,
+  loadReviews,
+} from "@/lib/mock-data";
 import type { ContractTypeConfig, DiscountFlag, DocumentCategory } from "@/lib/types";
 
-const STORAGE_KEY = "ai_econtract_form_lists_v5";
+const STORAGE_KEY = "ai_econtract_form_lists_v6";
+
+export type FormListItemStatus = "active" | "archived";
 
 export type DiscountOption = {
   value: DiscountFlag;
@@ -18,12 +24,56 @@ export type CodeLabelOption = {
   id: string;
   code: string;
   label: string;
+  /** archived = ẩn khỏi form tạo HĐ; vẫn giữ để HĐ cũ tham chiếu. */
+  status?: FormListItemStatus;
 };
 
 /** Tên hợp đồng — gắn với một Loại hợp đồng (document category). */
 export type ContractNameOption = CodeLabelOption & {
   documentCategoryId: string;
 };
+
+export type FormListKind =
+  | "documentCategories"
+  | "contractTypes"
+  | "contractNames"
+  | "businessEntities"
+  | "contractBases";
+
+/** Số HĐ (transaction) đang tham chiếu giá trị Form lists — dùng để chặn Xóa. */
+export function countFormListItemUsage(
+  kind: FormListKind,
+  id: string
+): number {
+  if (typeof window === "undefined" || !id) return 0;
+  try {
+    const reviews = loadReviews();
+    switch (kind) {
+      case "documentCategories":
+        return reviews.filter((r) => r.intake?.documentCategoryId === id)
+          .length;
+      case "contractTypes":
+        return reviews.filter((r) => r.contractTypeId === id).length;
+      case "contractNames":
+        return reviews.filter((r) => r.intake?.contractNameId === id).length;
+      case "businessEntities":
+        return reviews.filter((r) => r.intake?.businessEntityId === id)
+          .length;
+      case "contractBases":
+        return reviews.filter((r) => r.intake?.contractBaseId === id).length;
+      default:
+        return 0;
+    }
+  } catch {
+    return 0;
+  }
+}
+
+export function isFormListItemArchived(
+  item: { status?: string } | null | undefined
+): boolean {
+  return item?.status === "archived";
+}
 
 export type FormListsState = {
   documentCategories: DocumentCategory[];
@@ -137,18 +187,66 @@ function normalizeContractNames(
       code: n.code,
       label: n.label,
       documentCategoryId: cat,
+      status: n.status === "archived" ? "archived" : "active",
     };
   });
+}
+
+function normalizeCodeLabelList(
+  list: Array<Partial<CodeLabelOption> & { id: string }> | undefined,
+  fallback: CodeLabelOption[]
+): CodeLabelOption[] {
+  return pickList(list, fallback).map((item) => ({
+    id: item.id,
+    code: item.code || "",
+    label: item.label || "",
+    status: item.status === "archived" ? "archived" : "active",
+  }));
+}
+
+function normalizeCategories(
+  list: Array<Partial<DocumentCategory> & { id: string }> | undefined,
+  fallback: DocumentCategory[]
+): DocumentCategory[] {
+  return pickList(list, fallback).map((c) => ({
+    id: c.id,
+    code: c.code || "",
+    label: c.label || "",
+    status: c.status === "archived" ? "archived" : "active",
+  }));
+}
+
+function normalizeContractTypes(
+  list: ContractTypeConfig[] | undefined,
+  fallback: ContractTypeConfig[]
+): ContractTypeConfig[] {
+  return pickList(list, fallback).map((t) => ({
+    ...t,
+    // Form lists: archived ẩn khỏi dropdown; còn lại coi như published
+    status: t.status === "archived" ? "archived" : "published",
+  }));
+}
+
+function readRawFormLists(): Partial<FormListsState> | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw =
+      localStorage.getItem(STORAGE_KEY) ||
+      localStorage.getItem("ai_econtract_form_lists_v5");
+    if (!raw) return null;
+    return JSON.parse(raw) as Partial<FormListsState>;
+  } catch {
+    return null;
+  }
 }
 
 export function loadFormLists(): FormListsState {
   const fallback = defaultFormLists();
   if (typeof window === "undefined") return fallback;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<FormListsState>;
-    const documentCategories = pickList(
+    const parsed = readRawFormLists();
+    if (!parsed) return fallback;
+    const documentCategories = normalizeCategories(
       parsed.documentCategories,
       fallback.documentCategories
     );
@@ -158,12 +256,18 @@ export function loadFormLists(): FormListsState {
         parsed.discountOptions,
         fallback.discountOptions
       ),
-      contractTypes: pickList(parsed.contractTypes, fallback.contractTypes),
-      businessEntities: pickList(
+      contractTypes: normalizeContractTypes(
+        parsed.contractTypes,
+        fallback.contractTypes
+      ),
+      businessEntities: normalizeCodeLabelList(
         parsed.businessEntities,
         fallback.businessEntities
       ),
-      contractBases: pickList(parsed.contractBases, fallback.contractBases),
+      contractBases: normalizeCodeLabelList(
+        parsed.contractBases,
+        fallback.contractBases
+      ),
       contractNames: normalizeContractNames(
         parsed.contractNames,
         fallback.contractNames,
