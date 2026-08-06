@@ -27,7 +27,11 @@ import {
   type IntakeFormValue,
 } from "@/components/review/intake-form-fields";
 import { useToast } from "@/components/ui/use-toast";
-import type { CodeLabelOption, DiscountOption } from "@/lib/form-lists-store";
+import type {
+  CodeLabelOption,
+  ContractNameOption,
+  DiscountOption,
+} from "@/lib/form-lists-store";
 import {
   acceptAllProposals,
   advanceQueue,
@@ -96,13 +100,40 @@ export default function ContractDetailPage() {
     []
   );
   const [contractBases, setContractBases] = useState<CodeLabelOption[]>([]);
-  const [contractNames, setContractNames] = useState<CodeLabelOption[]>([]);
+  const [contractNames, setContractNames] = useState<ContractNameOption[]>([]);
   const [intakeForm, setIntakeForm] = useState<IntakeFormValue | null>(null);
   const [headerInsightOpen, setHeaderInsightOpen] = useState(false);
   const [insightRecalculating, setInsightRecalculating] = useState(false);
   /** null = đang xem bản hiện tại; number = xem lại snapshot version cũ */
   const [viewVersion, setViewVersion] = useState<number | null>(null);
   const headerBadgeRef = useRef<HTMLButtonElement>(null);
+
+  /** % chiều rộng cột Chat trong tab Workspace (kéo thanh chia để đổi). */
+  const [chatPct, setChatPct] = useState(42);
+  const splitRef = useRef<HTMLDivElement>(null);
+
+  const startSplitDrag = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const container = splitRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const prevUserSelect = document.body.style.userSelect;
+    const prevCursor = document.body.style.cursor;
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "col-resize";
+    const onMove = (ev: PointerEvent) => {
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setChatPct(Math.min(70, Math.max(20, pct)));
+    };
+    const onUp = () => {
+      document.body.style.userSelect = prevUserSelect;
+      document.body.style.cursor = prevCursor;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
 
   useEffect(() => {
     setViewVersion(null);
@@ -204,7 +235,10 @@ export default function ContractDetailPage() {
       contractNames
     );
     if (!intake) {
-      toast({ title: "Loại tài liệu không hợp lệ", variant: "destructive" });
+      toast({
+        title: "Loại hợp đồng (Contract category) không hợp lệ",
+        variant: "destructive",
+      });
       return;
     }
     setSavingIntake(true);
@@ -376,7 +410,7 @@ export default function ContractDetailPage() {
             )}
             {isLegal && review.status === "pending_legal" && (
               <Button asChild>
-                <a href={`/dashboard/legal?focus=${review.id}`}>Mở hộp duyệt</a>
+                <a href={`/dashboard/tasks?focus=${review.id}`}>Mở Task</a>
               </Button>
             )}
           </div>
@@ -413,7 +447,7 @@ export default function ContractDetailPage() {
             </TabsTrigger>
             <TabsTrigger value="ai-review" className="gap-1.5 px-4">
               <Sparkles className="h-3.5 w-3.5" />
-              AI Review
+              AI Workspace
             </TabsTrigger>
           </TabsList>
 
@@ -544,8 +578,14 @@ export default function ContractDetailPage() {
                   value="workspace"
                   className="mt-2 flex-1 min-h-0 overflow-hidden data-[state=inactive]:hidden"
                 >
-                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 h-full min-h-0">
-                    <Card className="xl:col-span-5 flex flex-col h-full min-h-0 overflow-hidden rounded-xl">
+                  <div
+                    ref={splitRef}
+                    className="flex flex-col xl:flex-row gap-3 xl:gap-0 h-full min-h-0"
+                  >
+                    <Card
+                      style={{ ["--chat-w" as string]: `${chatPct}%` }}
+                      className="flex flex-col flex-1 xl:flex-none xl:w-[var(--chat-w)] h-full min-h-0 overflow-hidden rounded-xl"
+                    >
                       <CardHeader className="py-3 border-b shrink-0">
                         <CardTitle className="text-sm">Chat với AI</CardTitle>
                         {isQueueing && (
@@ -569,7 +609,17 @@ export default function ContractDetailPage() {
                       </CardContent>
                     </Card>
 
-                    <Card className="xl:col-span-7 flex flex-col h-full min-h-0 overflow-hidden p-0 rounded-xl">
+                    <div
+                      role="separator"
+                      aria-orientation="vertical"
+                      onPointerDown={startSplitDrag}
+                      className="hidden xl:flex shrink-0 w-3 cursor-col-resize items-center justify-center group"
+                      title="Kéo để chỉnh tỷ lệ hai ngăn"
+                    >
+                      <div className="h-16 w-1 rounded-full bg-border transition-colors group-hover:bg-primary/60 group-active:bg-primary" />
+                    </div>
+
+                    <Card className="flex flex-col flex-1 h-full min-h-0 overflow-hidden p-0 rounded-xl">
                       {viewingVersionEntry && (
                         <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                           <span>

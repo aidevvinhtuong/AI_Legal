@@ -36,13 +36,10 @@ import {
   clauseKindLabel,
   getConfigPermission,
   getConfigVersion,
-  lifecycleBadgeVariant,
   linkMatrix,
   listConfigAudit,
   listMatrices,
-  publishConfig,
   removeClause,
-  runTestPreview,
   saveConfigDraft,
   severityLabel,
   upsertClause,
@@ -52,7 +49,6 @@ import {
   ArrowLeft,
   Download,
   FileText,
-  FlaskConical,
   Loader2,
   Plus,
   Save,
@@ -95,7 +91,6 @@ export default function ConfigDetailPage() {
   const [clauseOpen, setClauseOpen] = useState(false);
   const [editing, setEditing] = useState<ChecklistClause | null>(null);
   const [isNewClause, setIsNewClause] = useState(false);
-  const [testFileName, setTestFileName] = useState("Sample_HD_Test.docx");
 
   const refresh = useCallback(async () => {
     const [c, m, a] = await Promise.all([
@@ -121,8 +116,8 @@ export default function ConfigDetailPage() {
       .finally(() => setLoading(false));
   }, [refresh, router, toast]);
 
-  const isDraft = config?.lifecycle === "draft";
-  const canEdit = isDraft && perm.canEditDraft;
+  const canEdit =
+    !!perm.canEditDraft && config?.lifecycle !== "archived";
 
   const openNewClause = () => {
     setEditing(emptyClause());
@@ -183,7 +178,7 @@ export default function ConfigDetailPage() {
     setSaving(true);
     try {
       setConfig(await saveConfigDraft(config));
-      toast({ title: "Đã lưu Draft" });
+      toast({ title: "Đã lưu" });
     } catch (e) {
       toast({
         title: "Lỗi",
@@ -211,46 +206,6 @@ export default function ConfigDetailPage() {
     }
   };
 
-  const handleTest = async () => {
-    if (!config) return;
-    setSaving(true);
-    try {
-      setConfig(await runTestPreview(config.id, testFileName));
-      setAudit(await listConfigAudit(config.contractTypeId));
-      toast({ title: "Đã chạy test preview" });
-    } catch (e) {
-      toast({
-        title: "Lỗi test",
-        description: e instanceof Error ? e.message : "Lỗi",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handlePublish = async () => {
-    if (!config) return;
-    setSaving(true);
-    try {
-      const published = await publishConfig(config.id);
-      setConfig(published);
-      setAudit(await listConfigAudit(config.contractTypeId));
-      toast({
-        title: "Đã Publish",
-        description: "Bản Published cũ (nếu có) đã được Archive.",
-      });
-    } catch (e) {
-      toast({
-        title: "Không Publish được",
-        description: e instanceof Error ? e.message : "Lỗi",
-        variant: "destructive",
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
-
   if (loading || !config) {
     return (
       <AppLayout>
@@ -274,39 +229,21 @@ export default function ConfigDetailPage() {
             </Button>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-semibold">{config.label}</h1>
-              <Badge variant={lifecycleBadgeVariant(config.lifecycle)}>
-                {config.lifecycle}
-              </Badge>
               <span className="text-sm text-muted-foreground">v{config.version}</span>
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               {config.contractTypeId} · cập nhật bởi {config.updatedBy}
-              {config.publishedBy ? ` · Publish: ${config.publishedBy}` : ""}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             {canEdit && (
-              <Button variant="outline" onClick={handleSaveMeta} disabled={saving}>
+              <Button onClick={handleSaveMeta} disabled={saving}>
                 {saving ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-1" />
                 ) : (
                   <Save className="h-4 w-4 mr-1" />
                 )}
-                Lưu Draft
-              </Button>
-            )}
-            {isDraft && perm.canPublish && (
-              <Button
-                className="bg-sky-600 hover:bg-sky-700"
-                onClick={handlePublish}
-                disabled={saving}
-              >
-                Publish
-              </Button>
-            )}
-            {isDraft && !perm.canPublish && (
-              <Button disabled variant="secondary" title="Chỉ Legal Lead được Publish">
-                Publish (cần Legal Lead)
+                Lưu
               </Button>
             )}
           </div>
@@ -317,7 +254,6 @@ export default function ConfigDetailPage() {
             <TabsTrigger value="meta">Thông tin & Matrix</TabsTrigger>
             <TabsTrigger value="clauses">Checklist điều khoản</TabsTrigger>
             <TabsTrigger value="ai">AI 2 tầng</TabsTrigger>
-            <TabsTrigger value="test">Test preview</TabsTrigger>
             <TabsTrigger value="template">Template Contract</TabsTrigger>
             <TabsTrigger value="audit">Audit cấu hình</TabsTrigger>
           </TabsList>
@@ -558,66 +494,14 @@ export default function ConfigDetailPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="test" className="mt-4">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Test preview trước Publish</CardTitle>
-                <CardDescription>
-                  Chạy checklist Draft trên 1 hợp đồng mẫu — tránh publish sai làm lệch hàng loạt
-                  review mới.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-3 items-end">
-                  <div className="space-y-2 flex-1 min-w-[200px]">
-                    <Label>Tên file mẫu (mock)</Label>
-                    <Input
-                      value={testFileName}
-                      onChange={(e) => setTestFileName(e.target.value)}
-                      disabled={!isDraft}
-                    />
-                  </div>
-                  <Button
-                    onClick={handleTest}
-                    disabled={!isDraft || saving || !perm.canEditDraft}
-                  >
-                    {saving ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                    ) : (
-                      <FlaskConical className="h-4 w-4 mr-1" />
-                    )}
-                    Chạy test
-                  </Button>
-                </div>
-                {config.lastTestPreview ? (
-                  <div className="rounded-lg border bg-muted/30 p-4 text-sm space-y-1">
-                    <p>
-                      <span className="text-muted-foreground">Kết quả:</span>{" "}
-                      <span className="font-medium">{config.lastTestPreview.summary}</span>
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      File: {config.lastTestPreview.sampleFileName} ·{" "}
-                      {format(new Date(config.lastTestPreview.testedAt), "dd/MM/yyyy HH:mm")} ·{" "}
-                      {config.lastTestPreview.testedBy}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                    Chưa có test preview — Legal Lead nên yêu cầu test trước khi Publish.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           <TabsContent value="template" className="mt-4">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Template Contract</CardTitle>
                 <CardDescription>
-                  File Word mẫu chuẩn của loại HĐ này. Purchasing upload HĐ theo template; khi
-                  bật &quot;bắt buộc khớp template&quot;, file lệch mẫu sẽ bị từ chối trước khi vào
-                  AI queue.
+                  File Word mẫu chuẩn của loại HĐ này (tham chiếu cho Legal / Purchasing). Hệ
+                  thống không so khớp nội dung file Hợp đồng review với template khi tạo hoặc
+                  upload — không chặn vào AI queue vì lệch mẫu.
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
@@ -739,8 +623,7 @@ export default function ConfigDetailPage() {
               <CardHeader>
                 <CardTitle className="text-base">Audit trail cấu hình</CardTitle>
                 <CardDescription>
-                  Tách biệt audit hợp đồng — ai sửa clause nào, Publish khi nào, version nào từng
-                  áp dụng cho review mới.
+                  Tách biệt audit hợp đồng — ai sửa clause / meta nào, version nào từng áp dụng.
                 </CardDescription>
               </CardHeader>
               <CardContent>

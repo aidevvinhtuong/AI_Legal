@@ -2,8 +2,14 @@ import { api, USE_MOCK } from "@/lib/api";
 import {
   loadFormLists,
   type CodeLabelOption,
+  type ContractNameOption,
   type DiscountOption,
 } from "@/lib/form-lists-store";
+import {
+  allocateDocumentNumber,
+  parseDocumentNumber,
+  syncDocSeqFromReviews,
+} from "@/lib/document-number";
 import {
   CONTRACT_TYPES,
   MOCK_USERS,
@@ -15,6 +21,7 @@ import {
   resolveTemplateUrlForContractType,
   upsertReview,
 } from "@/lib/mock-data";
+import { defaultPermissionsForRole } from "@/lib/permissions";
 import type {
   ChatMessage,
   ContractReview,
@@ -59,7 +66,12 @@ export function getSession(): UserSession | null {
   const raw = localStorage.getItem("user");
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as UserSession;
+    const parsed = JSON.parse(raw) as UserSession;
+    // Session cũ chưa có permissions → suy từ role
+    if (!parsed.permissions?.length && parsed.role) {
+      parsed.permissions = defaultPermissionsForRole(parsed.role);
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -87,10 +99,57 @@ export async function loginAs(role: UserRole): Promise<UserSession> {
   return user;
 }
 
+export async function loginWithCredentials(
+  username: string,
+  password: string
+): Promise<UserSession> {
+  if (USE_MOCK) {
+    await delay(300);
+    const { getUserByUsername, toSession } = await import("@/lib/user-store");
+    const account = getUserByUsername(username);
+    if (!account || account.password !== password) {
+      throw new Error("Sai tài khoản hoặc mật khẩu");
+    }
+    if (!account.active) {
+      throw new Error("Tài khoản đang bị khoá. Liên hệ IT.");
+    }
+    const session = toSession(account);
+    setSession(session);
+    return session;
+  }
+  const user = (await api.post("/api/auth/login", {
+    username,
+    password,
+  })) as UserSession;
+  setSession(user);
+  return user;
+}
+
+export async function changeOwnPassword(
+  username: string,
+  oldPassword: string,
+  newPassword: string
+): Promise<void> {
+  if (USE_MOCK) {
+    await delay(200);
+    const { changePassword } = await import("@/lib/user-store");
+    changePassword(username, oldPassword, newPassword);
+    return;
+  }
+  await api.post("/api/auth/change-password", {
+    username,
+    oldPassword,
+    newPassword,
+  });
+}
+
+/** Options cho field "Loại giá trị hợp đồng (Contract value type)" — Form lists cùng tên. */
 export async function listContractTypes(): Promise<ContractTypeConfig[]> {
   if (USE_MOCK) {
     await delay(150);
-    return loadFormLists().contractTypes.filter((t) => t.status === "published");
+    return loadFormLists().contractTypes.filter(
+      (t) => t.label.trim() && t.id.trim() && t.status !== "archived"
+    );
   }
   return api.get("/api/contract-types");
 }
@@ -127,7 +186,7 @@ export async function listContractBases(): Promise<CodeLabelOption[]> {
   return api.get("/api/contract-bases");
 }
 
-export async function listContractNames(): Promise<CodeLabelOption[]> {
+export async function listContractNames(): Promise<ContractNameOption[]> {
   if (USE_MOCK) {
     await delay(50);
     return loadFormLists().contractNames;
@@ -140,8 +199,27 @@ export async function listReviews(): Promise<ContractReview[]> {
     await delay(200);
     const session = getSession();
     const all = loadReviews();
-    if (session?.role === "purchasing") {
-      return all.filter((r) => r.ownerName.includes(session.name) || true);
+    if (!session) return all;
+    if (session.role === "purchasing") {
+      return all.filter(
+        (r) =>
+          r.ownerId === session.userId ||
+          (!r.ownerId &&
+            (r.ownerName.includes(session.name) ||
+              r.ownerName.includes(session.username)))
+      );
+    }
+    if (session.role === "purchasing_manager") {
+      const { subordinateIds } = await import("@/lib/user-store");
+      const subs = new Set(subordinateIds(session.userId));
+      return all.filter(
+        (r) =>
+          r.ownerId === session.userId ||
+          (r.ownerId && subs.has(r.ownerId)) ||
+          (!r.ownerId &&
+            (r.ownerName.includes(session.name) ||
+              r.ownerName.includes(session.username)))
+      );
     }
     return all;
   }
@@ -183,13 +261,7 @@ export async function createReview(input: {
     const type = resolveContractType(input.contractTypeId);
     if (!type) throw new Error("Loại hợp đồng không hợp lệ");
 
-    if (type.requireTemplateMatch) {
-      if (/ncc_sai_template/i.test(primary.name)) {
-        throw new Error(
-          "File không khớp template chuẩn của Legal cho Hợp đồng khung. Vui lòng dùng đúng mẫu."
-        );
-      }
-    }
+    // Không so khớp nội dung file review với template loại HĐ khi tạo / upload.
 
     const session = getSession();
     const valueNum = Number(String(input.intake.contractValue).replace(/\D/g, "")) || 0;
@@ -198,12 +270,30 @@ export async function createReview(input: {
         ? ` · ${references.length} file tham khảo`
         : "";
     const existing = loadReviews();
+    syncDocSeqFromReviews(existing);
+
+    const lists = loadFormLists();
+    const entity = lists.businessEntities.find(
+      (e) => e.id === input.intake.businessEntityId
+    );
+    const category = lists.documentCategories.find(
+      (c) => c.id === input.intake.documentCategoryId
+    );
+    if (!entity?.code || !category?.code) {
+      throw new Error("Thiếu Công ty hoặc Loại hợp đồng để sinh Số tài liệu");
+    }
+    const documentNumber = allocateDocumentNumber(entity.code, category.code);
+    const intake: DocumentIntakeMeta = {
+      ...input.intake,
+      documentNumber,
+    };
+
     const review = createMockReview({
       id: `rev_${Date.now()}`,
       documentId: nextDocumentId(existing),
-      code: input.intake.documentNumber || undefined,
+      code: documentNumber,
       title:
-        input.intake.documentName ||
+        intake.documentName ||
         input.title ||
         primary.name.replace(/\.docx$/i, ""),
       contractTypeId: type.id,
@@ -222,10 +312,13 @@ export async function createReview(input: {
       originalDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
       reviewedDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
       prompt: input.prompt || "",
-      ownerName: session ? `${session.name} (Purchasing)` : "Purchasing",
+      ownerName: session
+        ? `${session.name} (${session.role === "purchasing_manager" ? "Purchasing Manager" : "Purchasing"})`
+        : "Purchasing",
+      ownerId: session?.userId,
       confidence: 0,
       proposals: [],
-      intake: input.intake,
+      intake,
       fields: [
         {
           id: "contract_value",
@@ -333,13 +426,31 @@ export async function updateReviewIntake(
     const type = resolveContractType(input.contractTypeId);
     if (!type) throw new Error("Loại hợp đồng không hợp lệ");
 
-    review.intake = input.intake;
+    let intake = input.intake;
+    // Số tài liệu đã cấp thì giữ nguyên; nháp chưa có số → cấp mới (không cho user sửa).
+    if (!parseDocumentNumber(intake.documentNumber)) {
+      const lists = loadFormLists();
+      const entity = lists.businessEntities.find(
+        (e) => e.id === intake.businessEntityId
+      );
+      const category = lists.documentCategories.find(
+        (c) => c.id === intake.documentCategoryId
+      );
+      if (entity?.code && category?.code) {
+        syncDocSeqFromReviews(loadReviews());
+        intake = {
+          ...intake,
+          documentNumber: allocateDocumentNumber(entity.code, category.code),
+        };
+      }
+    }
+    review.intake = intake;
     review.contractTypeId = type.id;
     review.contractTypeLabel = type.label;
     review.group = type.group;
-    review.title = input.intake.documentName || review.title;
-    if (input.intake.documentNumber) {
-      review.code = input.intake.documentNumber;
+    review.title = intake.documentName || review.title;
+    if (intake.documentNumber) {
+      review.code = intake.documentNumber;
     }
     if (input.prompt !== undefined) {
       review.prompt = input.prompt;
@@ -918,8 +1029,12 @@ export async function submitToLegal(id: string): Promise<ContractReview> {
     if (errors.length) {
       throw new Error(errors[0]);
     }
-    review.status = "pending_legal";
     const session = getSession();
+    // Có Line Manager → chờ Purchasing Manager; không có → thẳng Legal
+    const { getUserById } = await import("@/lib/user-store");
+    const owner = review.ownerId ? getUserById(review.ownerId) : undefined;
+    const hasManager = Boolean(owner?.lineManagerId);
+    review.status = hasManager ? "pending_manager" : "pending_legal";
     const isFirstSubmit = !(review.versionHistory?.length ?? 0);
     pushVersionEntry(review, isFirstSubmit ? "submit_legal" : "resubmit", {
       role: "purchasing",
@@ -930,6 +1045,49 @@ export async function submitToLegal(id: string): Promise<ContractReview> {
     return review;
   }
   return api.post(`/api/reviews/${id}/submit-legal`);
+}
+
+/** Purchasing Manager approve / reject (lane 4 swimlane). */
+export async function managerDecide(
+  id: string,
+  decision: "approve" | "reject",
+  comment = ""
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(350);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    if (review.status !== "pending_manager") {
+      throw new Error("Ticket không ở trạng thái chờ Manager duyệt");
+    }
+    const session = getSession();
+    if (decision === "reject") {
+      if (!comment.trim()) throw new Error("Cần comment khi từ chối");
+      review.status = "rejected";
+      review.feedback = [
+        {
+          id: `fb_${Date.now()}`,
+          clauseLabel: "Purchasing Manager feedback",
+          comment: comment.trim(),
+          done: false,
+        },
+      ];
+      pushVersionEntry(review, "legal_reject", {
+        role: "purchasing",
+        name: session?.name || "Purchasing Manager",
+      });
+    } else {
+      review.status = "pending_legal";
+      pushVersionEntry(review, "resubmit", {
+        role: "purchasing",
+        name: session?.name || "Purchasing Manager",
+      });
+    }
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/manager-decide`, { decision, comment });
 }
 
 export async function legalDecide(
@@ -1144,7 +1302,7 @@ export function buildEcontractPayload(review: ContractReview) {
       refId: review.code,
       file: "<base64 file .docx đã chèn marker mực trắng>",
       fileName: review.fileName,
-      docTypeCode: null as number | null, // chốt mã loại tài liệu với FPT (lỗi docTypeCodeIsNotExists)
+      docTypeCode: null as number | null, // chốt mã loại hợp đồng với FPT (lỗi docTypeCodeIsNotExists)
       headerFields: [
         { id: "envName", name: "Tên tài liệu", type: "string", value: review.title },
         { id: "envNo", name: "Số tài liệu", type: "string", value: review.code },

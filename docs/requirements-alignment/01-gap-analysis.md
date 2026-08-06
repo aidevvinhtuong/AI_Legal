@@ -18,7 +18,7 @@
 
 | # | Yêu cầu (README) | Trạng thái | Chi tiết / vị trí code |
 |---|------------------|-----------|------------------------|
-| 1 | Cấu hình loại HĐ: template + checklist cấu trúc + cờ khớp template, versioning Draft→Published→Archived | ✅ Demo | `src/app/dashboard/config/` + `src/lib/config-service.ts`, `config-mock.ts`. Lifecycle, audit, permission hoạt động trên localStorage. Khi `USE_MOCK=false` toàn bộ Config API ném lỗi `"API chưa sẵn sàng"` |
+| 1 | Cấu hình loại HĐ: template + checklist cấu trúc + cờ khớp template; Sửa + Lưu (không Draft/Publish) | ✅ Demo | `src/app/dashboard/config/` + `src/lib/config-service.ts`, `config-mock.ts`. Sửa trực tiếp + audit + permission tick `contract_config`. Khi `USE_MOCK=false` toàn bộ Config API ném lỗi `"API chưa sẵn sàng"` |
 | 2 | Import/Export checklist Excel | 🔧 Service-only | `exportChecklistCsv` / `importChecklistCsv` có trong `config-service.ts` (CSV, không phải Excel) nhưng **không màn hình nào gọi** |
 | 3 | Approval Matrix: ngưỡng ↔ cấp duyệt (Sprint 1 chỉ tính % tin cậy & cảnh báo) | 🟡 Mock | Chỉ **link** matrix có sẵn vào contract type; **chưa có màn hình tạo/sửa matrix**. Ngưỡng ảnh hưởng score qua heuristic trong `review-service.saveFields` |
 | 4 | Input + Queue: upload `.docx`, kiểm tra cấu trúc, prompt, hàng đợi LLM Local | 🟡 Mock | `contracts/new` hoạt động nhưng: (a) file upload thật **không được dùng để preview** — luôn map sang `/samples/*.docx`; (b) queue là `setTimeout` giả lập (`advanceQueue`); (c) **không có bước đối chiếu template fail-fast cho HĐ khung khi tạo** — template match chỉ mock bằng regex tên file `ncc_sai_template` |
@@ -37,7 +37,7 @@
 | 13 | Audit / Version / RBAC | ✅ Demo | Version history + snapshot xem lại; audit config tách audit HĐ; RBAC 4 role (`roles.ts`). **Lưu ý:** filter "Purchasing chỉ thấy HĐ của mình" là no-op (`ownerName.includes(...) \|\| true` trong `review-service.listReviews`) |
 | 14 | System Prompt (Git): 4 stage + injection guard | ✅ Demo | `prompts/` đủ 4 stage + `_shared/injection_guard.md`; CI validate (`scripts/validate-prompts.js`, GitHub Action). **Nhưng prompts chưa được nối vào luồng AI nào** (chat/insight không dùng prompt) |
 | 15 | Export + Disclaimer: `.docx` giữ format, disclaimer trên UI | 🟡 Mock | Download trả về file sample hoặc export text tạm. Chưa có pipeline ghi OOXML giữ format. Disclaimer đã có trên UI |
-| 16 | Auth / phân quyền đăng nhập | 🟡 Mock | `login/page.tsx` chỉ là role picker, không có credential/SSO |
+| 16 | Auth / phân quyền đăng nhập | 🟡 Mock | `login/page.tsx` có form tài khoản/mật khẩu (demo `admin`/`admin`, validate mock) + login nhanh theo role; chưa nối SSO/credential thật (D2) |
 | 17 | Fallback rule-based khi LLM sự cố | ❌ Chưa có | Không có code nào thể hiện cơ chế fallback |
 | 18 | Processing Queue chịu tải vài trăm HĐ/tháng | ❌ Chưa có | Chỉ có UI trạng thái queue; không có hạ tầng queue |
 

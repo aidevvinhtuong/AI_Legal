@@ -14,7 +14,11 @@ import {
   isIntakeFormValid,
   type IntakeFormValue,
 } from "@/components/review/intake-form-fields";
-import type { CodeLabelOption, DiscountOption } from "@/lib/form-lists-store";
+import type {
+  CodeLabelOption,
+  ContractNameOption,
+  DiscountOption,
+} from "@/lib/form-lists-store";
 import {
   createReview,
   listBusinessEntities,
@@ -101,7 +105,7 @@ export default function NewReviewPage() {
     []
   );
   const [contractBases, setContractBases] = useState<CodeLabelOption[]>([]);
-  const [contractNames, setContractNames] = useState<CodeLabelOption[]>([]);
+  const [contractNames, setContractNames] = useState<ContractNameOption[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [intakeForm, setIntakeForm] = useState<IntakeFormValue>(EMPTY_INTAKE);
   const [reviewFile, setReviewFile] = useState<File | null>(null);
@@ -192,7 +196,10 @@ export default function NewReviewPage() {
       contractNames
     );
     if (!intake) {
-      toast({ title: "Loại tài liệu không hợp lệ", variant: "destructive" });
+      toast({
+        title: "Loại hợp đồng (Contract category) không hợp lệ",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -254,6 +261,7 @@ export default function NewReviewPage() {
               businessEntities={businessEntities}
               contractBases={contractBases}
               contractNames={contractNames}
+              autoDocumentNumber
             />
 
             <div className="space-y-2">

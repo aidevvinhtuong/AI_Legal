@@ -1,11 +1,11 @@
 import { USE_MOCK } from "@/lib/api";
 import {
-  CONTRACT_PARENT_CATEGORIES,
   DEFAULT_CONFIG_PERMISSIONS,
   type ChecklistClause,
   type ConfigAuditAction,
   type ConfigAuditEntry,
   type ConfigPermission,
+  type ContractParentCategory,
   type ContractTypeConfigVersion,
   type ApprovalMatrixConfig,
 } from "@/lib/config-types";
@@ -13,11 +13,13 @@ import {
   loadConfigAudit,
   loadConfigVersions,
   loadMatrices,
+  loadParentCategories,
   saveConfigAudit,
   saveConfigVersions,
+  saveParentCategories,
 } from "@/lib/config-mock";
 import { getSession } from "@/lib/review-service";
-import type { UserRole } from "@/lib/types";
+import type { ContractGroup, UserRole } from "@/lib/types";
 
 function delay(ms = 250) {
   return new Promise((r) => setTimeout(r, ms));
@@ -36,7 +38,20 @@ function actor() {
 }
 
 export function getConfigPermission(role?: UserRole): ConfigPermission {
-  const r = role || getSession()?.role || "purchasing";
+  const session = getSession();
+  const r = role || session?.role || "purchasing";
+  const perms = session?.permissions;
+  // Ưu tiên tick permissions trên user (IT gán)
+  if (perms?.length) {
+    const canConfig = perms.includes("contract_config");
+    return {
+      role: r === "it" ? "it" : r === "legal_lead" ? "legal_lead" : r === "legal" ? "legal" : "purchasing",
+      canView: canConfig,
+      canEditDraft: canConfig,
+      canImportExport: canConfig,
+      canViewAudit: canConfig || r === "it",
+    };
+  }
   const mapped =
     r === "it"
       ? "it"
@@ -49,6 +64,12 @@ export function getConfigPermission(role?: UserRole): ConfigPermission {
     DEFAULT_CONFIG_PERMISSIONS.find((p) => p.role === mapped) ||
     DEFAULT_CONFIG_PERMISSIONS[2]
   );
+}
+
+function assertCanEditConfig(cfg: ContractTypeConfigVersion) {
+  if (cfg.lifecycle === "archived") {
+    throw new Error("Bản đã archive — không sửa được");
+  }
 }
 
 function appendAudit(
@@ -116,13 +137,11 @@ export async function saveConfigDraft(
   config: ContractTypeConfigVersion
 ): Promise<ContractTypeConfigVersion> {
   const perm = getConfigPermission();
-  if (!perm.canEditDraft) throw new Error("Không có quyền sửa Draft");
+  if (!perm.canEditDraft) throw new Error("Không có quyền sửa cấu hình");
+  assertCanEditConfig(config);
 
   if (USE_MOCK) {
     await delay();
-    if (config.lifecycle !== "draft") {
-      throw new Error("Chỉ được sửa bản Draft");
-    }
     const a = actor();
     const updated: ContractTypeConfigVersion = {
       ...config,
@@ -138,7 +157,7 @@ export async function saveConfigDraft(
       configVersionId: updated.id,
       contractTypeId: updated.contractTypeId,
       action: "update_meta",
-      note: `Lưu Draft v${updated.version}`,
+      note: `Lưu v${updated.version}`,
     });
     return updated;
   }
@@ -151,7 +170,7 @@ export async function upsertClause(
   isNew: boolean
 ): Promise<ContractTypeConfigVersion> {
   const cfg = await getConfigVersion(configId);
-  if (cfg.lifecycle !== "draft") throw new Error("Chỉ sửa clause trên Draft");
+  assertCanEditConfig(cfg);
   const clauses = isNew
     ? [...cfg.clauses, clause]
     : cfg.clauses.map((c) => (c.id === clause.id ? clause : c));
@@ -171,7 +190,7 @@ export async function removeClause(
   clauseId: string
 ): Promise<ContractTypeConfigVersion> {
   const cfg = await getConfigVersion(configId);
-  if (cfg.lifecycle !== "draft") throw new Error("Chỉ xoá clause trên Draft");
+  assertCanEditConfig(cfg);
   const removed = cfg.clauses.find((c) => c.id === clauseId);
   const updated = await saveConfigDraft({
     ...cfg,
@@ -192,7 +211,7 @@ export async function linkMatrix(
   matrixId: string | null
 ): Promise<ContractTypeConfigVersion> {
   const cfg = await getConfigVersion(configId);
-  if (cfg.lifecycle !== "draft") throw new Error("Chỉ link matrix trên Draft");
+  assertCanEditConfig(cfg);
   const old = cfg.approvalMatrixId;
   const updated = await saveConfigDraft({
     ...cfg,
@@ -214,9 +233,7 @@ export async function runTestPreview(
   sampleFileName: string
 ): Promise<ContractTypeConfigVersion> {
   const cfg = await getConfigVersion(configId);
-  if (cfg.lifecycle !== "draft") {
-    throw new Error("Chỉ test preview trên Draft trước Publish");
-  }
+  assertCanEditConfig(cfg);
   await delay(800);
   const a = actor();
   const active = cfg.clauses.filter((c) => c.active);
@@ -249,125 +266,67 @@ export async function runTestPreview(
   return updated;
 }
 
-/**
- * Publish Draft:
- * - Chỉ Legal Lead (canPublish)
- * - Nên có test preview trước
- * - Archive bản Published cũ cùng contractTypeId (chỉ 1 Published / loại)
- */
-export async function publishConfig(
-  configId: string,
-  opts?: { skipTestCheck?: boolean }
-): Promise<ContractTypeConfigVersion> {
-  const perm = getConfigPermission();
-  if (!perm.canPublish) {
-    throw new Error("Chỉ Legal Lead được Publish cấu hình");
-  }
+function slugifyLabel(label: string, max = 40): string {
+  return label
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "")
+    .slice(0, max);
+}
 
-  const cfg = await getConfigVersion(configId);
-  if (cfg.lifecycle !== "draft") throw new Error("Chỉ Publish từ Draft");
-
-  if (!opts?.skipTestCheck && !cfg.lastTestPreview) {
-    throw new Error(
-      "Chưa chạy test preview trên hợp đồng mẫu. Nên test trước khi Publish."
-    );
-  }
-
+export async function listParentCategories(): Promise<ContractParentCategory[]> {
   if (USE_MOCK) {
-    await delay(400);
-    const a = actor();
-    const list = loadConfigVersions();
-
-    // Archive existing Published of same type
-    for (let i = 0; i < list.length; i++) {
-      if (
-        list[i].contractTypeId === cfg.contractTypeId &&
-        list[i].lifecycle === "published" &&
-        list[i].id !== cfg.id
-      ) {
-        list[i] = {
-          ...list[i],
-          lifecycle: "archived",
-          updatedAt: now(),
-          updatedBy: a.name,
-        };
-        appendAudit({
-          configVersionId: list[i].id,
-          contractTypeId: list[i].contractTypeId,
-          action: "archive",
-          note: `Auto-archive khi Publish ${cfg.id}`,
-        });
-      }
-    }
-
-    const published: ContractTypeConfigVersion = {
-      ...cfg,
-      lifecycle: "published",
-      publishedAt: now(),
-      publishedBy: a.name,
-      updatedAt: now(),
-      updatedBy: a.name,
-    };
-    const idx = list.findIndex((c) => c.id === configId);
-    if (idx >= 0) list[idx] = published;
-    saveConfigVersions(list);
-    appendAudit({
-      configVersionId: configId,
-      contractTypeId: cfg.contractTypeId,
-      action: "publish",
-      note: `Publish v${cfg.version} — mỗi loại HĐ chỉ 1 bản Published`,
-    });
-    return published;
+    await delay(80);
+    return loadParentCategories();
   }
   throw new Error("API chưa sẵn sàng");
 }
 
-export async function createNewDraftFromPublished(
-  publishedId: string
-): Promise<ContractTypeConfigVersion> {
+/**
+ * Tạo loại hợp đồng cha mới (nhóm chứa nhiều loại con).
+ */
+export async function createParentContractCategory(input: {
+  label: string;
+  description?: string;
+  group?: ContractGroup;
+}): Promise<ContractParentCategory> {
   const perm = getConfigPermission();
-  if (!perm.canEditDraft) throw new Error("Không có quyền tạo Draft");
+  if (!perm.canEditDraft) throw new Error("Không có quyền tạo loại hợp đồng");
 
-  const src = await getConfigVersion(publishedId);
-  if (src.lifecycle !== "published") {
-    throw new Error("Chỉ clone từ bản Published");
-  }
+  const trimmed = input.label.trim();
+  if (!trimmed) throw new Error("Nhập tên loại hợp đồng cha");
 
-  const existing = loadConfigVersions().filter(
-    (c) => c.contractTypeId === src.contractTypeId
-  );
-  const nextVersion = Math.max(...existing.map((c) => c.version), 0) + 1;
-  const a = actor();
-  const draft: ContractTypeConfigVersion = {
-    ...structuredClone(src),
-    id: `cfg_${src.contractTypeId}_v${nextVersion}_${Date.now()}`,
-    parentCategoryId: src.parentCategoryId,
-    lifecycle: "draft",
-    version: nextVersion,
-    publishedAt: undefined,
-    publishedBy: undefined,
-    lastTestPreview: undefined,
-    createdAt: now(),
-    updatedAt: now(),
-    createdBy: a.name,
-    updatedBy: a.name,
+  const base = slugifyLabel(trimmed, 28) || "parent";
+  const id = `${base}_${Date.now().toString(36).slice(-4)}`;
+  const group: ContractGroup =
+    input.group || (base.includes("vendor") || base.includes("ncc") ? "vendor" : "framework");
+
+  const parent: ContractParentCategory = {
+    id,
+    label: trimmed,
+    description: input.description?.trim() || undefined,
+    group,
   };
 
-  const list = loadConfigVersions();
-  list.unshift(draft);
-  saveConfigVersions(list);
-  appendAudit({
-    configVersionId: draft.id,
-    contractTypeId: draft.contractTypeId,
-    action: "create_draft",
-    note: `Clone từ Published v${src.version} → Draft v${nextVersion}`,
-  });
-  return draft;
+  if (USE_MOCK) {
+    await delay();
+    const list = loadParentCategories();
+    if (list.some((p) => p.label.toLowerCase() === trimmed.toLowerCase())) {
+      throw new Error("Đã có loại hợp đồng cha cùng tên");
+    }
+    list.push(parent);
+    saveParentCategories(list);
+    return parent;
+  }
+  throw new Error("API chưa sẵn sàng");
 }
 
 /**
  * Tạo loại hợp đồng con (line) mới dưới một loại cha.
- * Mỗi line = một contractTypeId riêng (bản Draft v1 trống checklist).
+ * Mỗi line = một contractTypeId riêng (bản v1 trống checklist, sửa trực tiếp).
  */
 export async function createChildContractType(
   parentCategoryId: string,
@@ -376,33 +335,28 @@ export async function createChildContractType(
   const perm = getConfigPermission();
   if (!perm.canEditDraft) throw new Error("Không có quyền tạo loại con");
 
-  const parent = CONTRACT_PARENT_CATEGORIES.find((p) => p.id === parentCategoryId);
+  const parents = loadParentCategories();
+  const parent = parents.find((p) => p.id === parentCategoryId);
   if (!parent) throw new Error("Không tìm thấy loại hợp đồng cha");
 
   const trimmed = label.trim();
   if (!trimmed) throw new Error("Nhập tên loại hợp đồng con");
 
-  const slug = trimmed
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "")
-    .slice(0, 40);
+  const slug = slugifyLabel(trimmed);
   const contractTypeId = `${parentCategoryId}_${slug || "child"}_${Date.now()
     .toString(36)
     .slice(-4)}`;
 
   const a = actor();
-  const group = parentCategoryId === "vendor" ? "vendor" : "framework";
+  const group: ContractGroup =
+    parent.group || (parentCategoryId === "vendor" ? "vendor" : "framework");
   const child: ContractTypeConfigVersion = {
     id: `cfg_${contractTypeId}_v1`,
     contractTypeId,
     parentCategoryId,
     label: trimmed,
     group,
-    lifecycle: "draft",
+    lifecycle: "published",
     version: 1,
     requireTemplateMatch: group === "framework",
     clauses: [],
@@ -434,15 +388,14 @@ export async function createChildContractType(
   throw new Error("API chưa sẵn sàng");
 }
 
-/** Một line hiển thị trên list: chọn Draft nếu có, không thì Published / bản mới nhất. */
+/** Một line hiển thị trên list: bản active mới nhất (không archive). */
 export function pickChildLineConfig(
   versions: ContractTypeConfigVersion[]
 ): ContractTypeConfigVersion | null {
   if (!versions.length) return null;
   const sorted = [...versions].sort((a, b) => b.version - a.version);
   return (
-    sorted.find((v) => v.lifecycle === "draft") ||
-    sorted.find((v) => v.lifecycle === "published") ||
+    sorted.find((v) => v.lifecycle !== "archived") ||
     sorted[0]
   );
 }
@@ -495,7 +448,7 @@ export function exportChecklistCsv(config: ContractTypeConfigVersion): string {
   return [header, ...rows].join("\n");
 }
 
-/** Import CSV rows into Draft (append/merge by code). */
+/** Import CSV rows (append/merge by code). */
 export async function importChecklistCsv(
   configId: string,
   csvText: string
@@ -504,7 +457,7 @@ export async function importChecklistCsv(
   if (!perm.canImportExport) throw new Error("Không có quyền import");
 
   const cfg = await getConfigVersion(configId);
-  if (cfg.lifecycle !== "draft") throw new Error("Chỉ import vào Draft");
+  assertCanEditConfig(cfg);
 
   const lines = csvText.trim().split(/\r?\n/);
   if (lines.length < 2) throw new Error("File CSV trống");

@@ -56,7 +56,7 @@ Thang điểm: Xác suất (P) và Ảnh hưởng (I) 1–5. Mức = P×I: Cao �
 | R5 | Kênh nhận file ký (sFTP/callback) treo / spec không như giả định demo | 3 | 4 | TB | Lấy spec thật sớm nhất (D1); thiết kế retry + đối soát | DEV |
 | R13 | Scope Rev12 lớn hơn demo đáng kể (PT2 inline, comment 2 chiều, Track Changes Legal, save thủ công đều chưa có) | 4 | 4 | Cao | Chốt ưu tiên/tách pha ngay tại A4, A4b, A4c, C6; cập nhật estimate trước sign-off | PM/BA |
 | R6 | Nghẽn queue cuối tháng/quý | 3 | 3 | TB | NFR-P1/P2; test tải trước pilot | DEV/TESTER |
-| R7 | Checklist & Approval Matrix lỗi thời, không ai cập nhật | 2 | 4 | TB | Governance Draft/Publish đã có; gán trách nhiệm Legal Lead định kỳ rà soát | Legal Lead |
+| R7 | Checklist & Approval Matrix lỗi thời, không ai cập nhật | 2 | 4 | TB | Legal Sửa+Lưu trực tiếp; gán trách nhiệm Legal định kỳ rà soát | Legal |
 | R8 | Prompt injection qua nội dung HĐ / chat | 2 | 4 | TB | Injection guard + test injection trong 06-test-strategy; audit Red Flag | IT |
 | R9 | Rò rỉ dữ liệu HĐ (file public path, quyền lỏng như demo) | 2 | 5 | TB | NFR-S2/S5; security review trước pilot | IT |
 | R10 | Hiểu nhầm yêu cầu vì demo ≠ sản phẩm (stakeholder tưởng đã xong) | 3 | 3 | TB | Gap analysis 01 công bố rõ phần mock; sign-off scope cuối giai đoạn | PM/BA |

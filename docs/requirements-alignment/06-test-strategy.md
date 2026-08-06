@@ -74,11 +74,11 @@ Bộ test case EC-01 → EC-09 (validate marker theo bảng mã lỗi FPT, paylo
 3. **Legal reject vòng lặp (Rev12 Mục 4.5)**: reject kèm comment theo field + Track Changes vùng mở → Purchasing thấy checklist sửa → Accept/Undo từng dòng → chủ động resubmit → version bump theo bộ đếm chung → approve.
 4. **PT2 sửa inline**: bôi đen/gõ đè vùng mở → diff tách lớp với diff AI → re-validate realtime → thử sửa vùng khoá bị chặn → kiểm tra lưu thủ công (cảnh báo Lưu / Thoát không lưu / Huỷ, chặn submit khi chưa lưu).
 5. **PT3 offline**: download → sửa offline hợp lệ → reupload pass → vòng review mới; và biến thể sửa vùng khoá → bị chặn.
-6. **Config governance**: Legal soạn Draft checklist → Legal Lead publish → bản Published cũ archived → review mới dùng checklist mới; import/export checklist.
+6. **Config checklist**: Legal (hoặc user có quyền Cấu hình hợp đồng) Sửa điều khoản → Lưu → review mới dùng checklist đã lưu; không Draft/Publish; import/export ngoài Sprint 1.
 
 ## 4. UAT
 
-- Script UAT viết theo đúng 6 luồng E2E, người thật: 2 Purchasing + 2 Legal + 1 Legal Lead + 1 IT.
+- Script UAT viết theo đúng 6 luồng E2E, người thật: 2 Purchasing + 1 Purchasing Manager + 2 Legal + 1 IT.
 - Môi trường UAT dùng dữ liệu HĐ thật (ẩn danh hoá nếu cần) + template thật.
 - Tiêu chí pass UAT: 100% luồng chính pass, lỗi Block = 0, người dùng xác nhận wording disclaimer (A9).
 

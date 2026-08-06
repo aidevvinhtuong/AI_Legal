@@ -17,7 +17,7 @@
 
 | Method | Path | Body | Response | Ghi chú |
 |--------|------|------|----------|---------|
-| POST | `/api/auth/login` | `{ role }` (demo) | `UserSession` | Sẽ đổi theo quyết định SSO (D2) |
+| POST | `/api/auth/login` | `{ username, password }` (FE đã gửi dạng này; demo còn hỗ trợ `{ role }` cho login nhanh) | `UserSession` | Tài khoản demo `admin`/`admin`; cơ chế thật đổi theo quyết định SSO (D2) |
 | GET | `/api/contract-types` | — | `ContractTypeConfig[]` | Chỉ bản published |
 | GET | `/api/document-categories` | — | `DocumentCategory[]` | |
 | GET | `/api/discount-options` | — | `DiscountOption[]` | |

@@ -13,9 +13,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge, STATUS_LABEL } from "@/components/review/status-badge";
-import { listReviews } from "@/lib/review-service";
+import { getSession, listReviews } from "@/lib/review-service";
 import type { ContractReview, ReviewAttachment, ReviewStatus } from "@/lib/types";
 import { sampleUrl } from "@/lib/mock-data";
+import {
+  canAccessConfig,
+  canAccessConfigurations,
+  canCreateContracts,
+} from "@/lib/roles";
 import {
   ArrowDown,
   ArrowUp,
@@ -24,6 +29,7 @@ import {
   Loader2,
   Plus,
   Search,
+  Settings,
   X,
 } from "lucide-react";
 import { format } from "date-fns";
@@ -49,12 +55,12 @@ const FILTER_FIELDS: {
   key: FilterFieldKey;
   label: string;
 }[] = [
-  { key: "status", label: "Trạng thái" },
-  { key: "category", label: "Loại tài liệu" },
-  { key: "contractType", label: "Loại hợp đồng" },
-  { key: "contractName", label: "Tên hợp đồng" },
-  { key: "businessEntity", label: "Business Entity" },
-  { key: "contractBase", label: "Contract base" },
+  { key: "status", label: "Trạng thái (Status)" },
+  { key: "category", label: "Loại hợp đồng (Contract category)" },
+  { key: "contractType", label: "Loại giá trị hợp đồng (Contract value type)" },
+  { key: "contractName", label: "Tên hợp đồng (Contract name)" },
+  { key: "businessEntity", label: "Công ty (Business Entity)" },
+  { key: "contractBase", label: "Hợp đồng tiêu chuẩn (Standard contract)" },
 ];
 
 function cell(value?: string | number | null) {
@@ -296,24 +302,41 @@ export default function DashboardPage() {
   const [popupOpen, setPopupOpen] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>("documentId");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [canAdd, setCanAdd] = useState(false);
+  const [canConfig, setCanConfig] = useState(false);
+  const [canSetup, setCanSetup] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const filterRef = useRef<HTMLDivElement>(null);
+  const settingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const session = getSession();
+    setCanAdd(!!session && canCreateContracts(session));
+    setCanConfig(canAccessConfig(session));
+    setCanSetup(canAccessConfigurations(session));
     listReviews()
       .then(setReviews)
       .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    if (!popupOpen) return;
+    if (!popupOpen && !settingsOpen) return;
     const onPointerDown = (e: MouseEvent) => {
-      if (!filterRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (popupOpen && filterRef.current && !filterRef.current.contains(target)) {
         setPopupOpen(false);
+      }
+      if (
+        settingsOpen &&
+        settingsRef.current &&
+        !settingsRef.current.contains(target)
+      ) {
+        setSettingsOpen(false);
       }
     };
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
-  }, [popupOpen]);
+  }, [popupOpen, settingsOpen]);
 
   const filterOptions = useMemo(
     () => ({
@@ -442,18 +465,29 @@ export default function DashboardPage() {
   };
 
   return (
-    <AppLayout>
-      <div className="flex flex-col h-[calc(100vh-4rem)] lg:h-[calc(100vh-4rem)] -m-4 lg:-m-8">
-        <div className="px-4 lg:px-8 pt-4 lg:pt-8 pb-4 shrink-0">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-            <h1 className="text-2xl font-semibold tracking-tight shrink-0 pt-1">
-              Danh sách hợp đồng
-            </h1>
+    <AppLayout lockViewport mainClassName="!p-0">
+      <div className="flex h-full min-h-0 flex-col">
+        <div className="shrink-0 border-b bg-background px-3 py-2.5 lg:px-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <h1 className="text-xl font-semibold tracking-tight mr-1">
+                Danh sách hợp đồng
+              </h1>
+              {canAdd && (
+                <Button size="sm" asChild>
+                  <Link href="/dashboard/contracts/new">
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add
+                  </Link>
+                </Button>
+              )}
+            </div>
 
-            <div ref={filterRef} className="relative w-full sm:max-w-xl lg:max-w-2xl sm:flex-1">
+            <div className="flex w-full items-center gap-2 sm:max-w-xl lg:max-w-2xl sm:flex-1">
+            <div ref={filterRef} className="relative min-w-0 flex-1">
             <div
               className={cn(
-                "flex min-h-10 flex-wrap items-center gap-1.5 rounded-xl border bg-card px-2.5 py-1.5 shadow-sm transition-colors",
+                "flex min-h-9 flex-wrap items-center gap-1.5 rounded-lg border bg-card px-2 py-1 shadow-sm transition-colors",
                 popupOpen && "border-sky-400 ring-2 ring-sky-100"
               )}
               onClick={() => setPopupOpen(true)}
@@ -564,38 +598,70 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {!popupOpen && (
-              <p className="mt-1.5 text-xs text-muted-foreground text-right">
-                {loading
-                  ? "Đang tải…"
-                  : `${filtered.length}/${reviews.length} tài liệu`}
-                {hasActiveFilter && (
-                  <button
-                    type="button"
-                    className="ml-2 text-sky-700 hover:underline"
-                    onClick={clearFilters}
-                  >
-                    Xóa lọc
-                  </button>
+            </div>
+
+            {(canConfig || canSetup) && (
+              <div ref={settingsRef} className="relative shrink-0">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  className="h-9 w-9 rounded-lg"
+                  aria-label="Cài đặt"
+                  aria-expanded={settingsOpen}
+                  onClick={() => setSettingsOpen((o) => !o)}
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+                {settingsOpen && (
+                  <div className="absolute right-0 top-full z-30 mt-1.5 min-w-[220px] rounded-lg border bg-white py-1 shadow-lg">
+                    {canConfig && (
+                      <Link
+                        href="/dashboard/config"
+                        className="flex w-full items-center px-3 py-2 text-sm hover:bg-slate-50"
+                        onClick={() => setSettingsOpen(false)}
+                      >
+                        Cấu hình hợp đồng
+                      </Link>
+                    )}
+                    {canSetup && (
+                      <Link
+                        href="/dashboard/configurations"
+                        className="flex w-full items-center px-3 py-2 text-sm hover:bg-slate-50"
+                        onClick={() => setSettingsOpen(false)}
+                      >
+                        Thiết lập
+                      </Link>
+                    )}
+                  </div>
                 )}
-              </p>
+              </div>
             )}
             </div>
           </div>
         </div>
 
-        <div className="flex-1 min-h-0 px-4 lg:px-8 pb-4 lg:pb-8">
-          <div className="h-full rounded-xl border bg-card shadow-sm overflow-hidden flex flex-col">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background pr-3 pb-3 lg:pr-4 lg:pb-4 pl-0">
             {loading ? (
-              <div className="flex items-center gap-2 text-muted-foreground py-16 justify-center">
+              <div className="flex flex-1 items-center gap-2 text-muted-foreground py-16 justify-center rounded-none border bg-card">
                 <Loader2 className="h-4 w-4 animate-spin" /> Đang tải...
               </div>
             ) : reviews.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-16 text-center">
-                Chưa có hợp đồng. Hãy tạo tài liệu mới.
-              </p>
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-none border bg-card py-16">
+                <p className="text-sm text-muted-foreground">
+                  Chưa có hợp đồng. Hãy tạo tài liệu mới.
+                </p>
+                {canAdd && (
+                  <Button size="sm" asChild>
+                    <Link href="/dashboard/contracts/new">
+                      <Plus className="h-4 w-4 mr-1" />
+                      Add
+                    </Link>
+                  </Button>
+                )}
+              </div>
             ) : filtered.length === 0 ? (
-              <div className="py-16 text-center space-y-3">
+              <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-none border bg-card py-16">
                 <p className="text-sm text-muted-foreground">
                   Không có tài liệu khớp bộ lọc.
                 </p>
@@ -604,39 +670,75 @@ export default function DashboardPage() {
                 </Button>
               </div>
             ) : (
-              <div className="flex-1 overflow-auto">
+              <div className="min-h-0 flex-1 overflow-auto rounded-none border bg-card">
                 <table className="w-full min-w-[2000px] border-collapse">
                   <thead>
                     <tr>
                       {(
                         [
                           { key: "documentId", label: "ID" },
-                          { key: "documentNumber", label: "Số tài liệu" },
-                          { key: "documentName", label: "Tên tài liệu" },
-                          { key: "category", label: "Loại tài liệu" },
-                          { key: "contractType", label: "Loại hợp đồng" },
-                          { key: "contractName", label: "Tên hợp đồng" },
-                          { key: "businessEntity", label: "Business Entity" },
-                          { key: "contractBase", label: "Contract base" },
-                          { key: "signingDate", label: "Ngày ký" },
-                          { key: "hasDiscount", label: "Có chiết khấu" },
-                          { key: "discountDetails", label: "Chi tiết chiết khấu" },
+                          {
+                            key: "documentNumber",
+                            label: "Số tài liệu (Document number)",
+                          },
+                          {
+                            key: "documentName",
+                            label: "Tên tài liệu (Document name)",
+                          },
+                          {
+                            key: "category",
+                            label: "Loại hợp đồng (Contract category)",
+                          },
+                          {
+                            key: "contractType",
+                            label: "Loại giá trị hợp đồng (Contract value type)",
+                          },
+                          {
+                            key: "contractName",
+                            label: "Tên hợp đồng (Contract name)",
+                          },
+                          {
+                            key: "businessEntity",
+                            label: "Công ty (Business Entity)",
+                          },
+                          {
+                            key: "contractBase",
+                            label: "Hợp đồng tiêu chuẩn (Standard contract)",
+                          },
+                          {
+                            key: "signingDate",
+                            label: "Ngày ký (Signing date)",
+                          },
+                          {
+                            key: "hasDiscount",
+                            label: "Có chiết khấu (Has discount)",
+                          },
+                          {
+                            key: "discountDetails",
+                            label: "Chi tiết chiết khấu (Discount details)",
+                          },
                           {
                             key: "contractValue",
-                            label: "Giá trị HĐ",
+                            label: "Giá trị HĐ (Contract value)",
                             align: "right" as const,
                           },
-                          { key: "reviewFile", label: "Hợp đồng review" },
-                          { key: "referenceFiles", label: "Hợp đồng tham khảo" },
+                          {
+                            key: "reviewFile",
+                            label: "Hợp đồng review (Review file)",
+                          },
+                          {
+                            key: "referenceFiles",
+                            label: "Hợp đồng tham khảo (Reference files)",
+                          },
                           { key: "owner", label: "Owner" },
-                          { key: "status", label: "Trạng thái" },
+                          { key: "status", label: "Trạng thái (Status)" },
                           {
                             key: "confidence",
-                            label: "% tin cậy",
+                            label: "% tin cậy (Confidence)",
                             align: "right" as const,
                           },
-                          { key: "createdAt", label: "Tạo lúc" },
-                          { key: "updatedAt", label: "Cập nhật" },
+                          { key: "createdAt", label: "Tạo lúc (Created)" },
+                          { key: "updatedAt", label: "Cập nhật (Updated)" },
                         ] as const
                       ).map((col) => (
                         <SortableTh
@@ -753,7 +855,6 @@ export default function DashboardPage() {
                 </table>
               </div>
             )}
-          </div>
         </div>
       </div>
     </AppLayout>

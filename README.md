@@ -19,10 +19,10 @@ Trợ lý AI nội bộ giúp **phòng Mua hàng** tự rà soát và hoàn thi�
 
 | Vai trò | Quyền / trách nhiệm |
 |---------|---------------------|
-| **Purchasing** | Khởi tạo, AI review, chỉnh sửa, gán marker ký số, submit Legal; chỉ thấy hợp đồng của mình |
-| **Legal** | Checklist + Approval Matrix; xem **toàn bộ** HĐ; comment, approve/reject |
-| **Legal Lead** | Publish cấu hình (tách với người soạn Draft) |
-| **IT** | Triển khai LLM Local, app, tích hợp; quản lý System Prompt/Skill (Git) |
+| **Purchasing** | Khởi tạo, AI review, chỉnh sửa, gán marker ký số, submit duyệt; chỉ thấy hợp đồng của mình |
+| **Purchasing Manager** | Duyệt HĐ subordinate (TH1/TH2/TH3); Approve → Legal |
+| **Legal** | Checklist + Approval Matrix (Sửa + Lưu); duyệt `pending_legal`; Approve → Econtract |
+| **IT** | Triển khai LLM Local, app, tích hợp; Form lists / System Prompt; Users + tick phân quyền |
 | **Econtract** | Hệ thống trình ký — API đồng bộ hai chiều |
 
 ## Phạm vi
@@ -43,9 +43,19 @@ Purchasing input → Queue → AI handle → Purchasing gán marker ký số
   → (approve: Interface Econtract → Callback cập nhật trạng thái ký)
 ```
 
+## Số tài liệu (Document number)
+
+Tự sinh khi tạo / lưu nháp — **user không sửa được**.
+
+- **Format:** `(Mã công ty).(Mã loại hợp đồng).NămYY + STT`  
+  Ví dụ: `VTS.HQP.260001`
+- **Mã công ty** = `businessEntities.code` (Form lists → Công ty)
+- **Mã loại hợp đồng** = `documentCategories.code` (Form lists → Loại hợp đồng / Contract category, vd HQP, RAW, LOG)
+- **STT** tăng theo **từng công ty** trong năm (không phụ thuộc loại HĐ)
+
 ## Luồng người dùng
 
-1. **Khởi tạo** — Chọn loại HĐ, upload `.docx`, nhập prompt  
+1. **Khởi tạo** — Chọn loại HĐ, upload `.docx`, nhập prompt; Số tài liệu tự sinh sau khi chọn Công ty + Loại hợp đồng  
    - HĐ khung: đối chiếu template → không khớp thì **chặn** (fail-fast)  
    - HĐ NCC/khác: quét vùng mở theo thứ tự **Range Permission** (`w:permStart`/`w:permEnd`) → Content Control → Legacy Form Field
 2. **AI xử lý** — Processing Queue; đề xuất **Loại A** (vùng mở) / **Loại B** (vùng khoá)
@@ -96,10 +106,10 @@ Mỗi loại HĐ do Legal định nghĩa: template mẫu + checklist cấu trúc
 Mỗi điều khoản checklist gồm (rút gọn): mã, tên, **Loại** (bắt buộc/cấm/khuyến nghị), **Mức độ** (Block / cảnh báo cao/thấp), **Ideal / Fallback / Red Line**, Rationale, keywords, điều kiện áp dụng, field liên kết (Range Permission/Content Control), cấp duyệt khi vượt Fallback.
 
 - AI 2 tầng: **rule-based** (keywords) + **semantic** (LLM vs Ideal)
-- Governance: Draft → Published → Archived (cả checklist **và Approval Matrix**); mỗi loại HĐ chỉ **1 bản Published**; Legal soạn Draft · Legal Lead Publish; nên test preview trước Publish
+- Governance Sprint 1: Legal **Sửa + Lưu** trực tiếp trên UI (không Draft/Publish); audit trail cấu hình tách audit hợp đồng
 - Approval Matrix: ngưỡng giá trị ↔ cấp duyệt — **Sprint 1 chỉ dùng để tính % tin cậy & cảnh báo**, không multi-level routing
-- **Cần chốt (Mục 6.4):** Matrix riêng theo từng loại HĐ hay dùng chung — nếu riêng, cấu hình loại HĐ cần field liên kết tới bản Matrix Published tương ứng
-- Import/Export Excel; audit trail cấu hình tách audit hợp đồng
+- **Cần chốt (Mục 6.4):** Matrix riêng theo từng loại HĐ hay dùng chung — nếu riêng, cấu hình loại HĐ cần field liên kết matrix tương ứng
+- Import/Export Excel: ngoài scope Sprint 1 (A10)
 
 ## System Prompt / Skill Layer (IT — tách khỏi Checklist Legal)
 
@@ -146,7 +156,7 @@ Risk scoring theo điều khoản · so sánh HĐ tương tự · UI admin nâng
 
 | Lớp | Vai trò |
 |-----|---------|
-| Config | ContractType + Approval Matrix (Draft/Published/Archived) |
+| Config | ContractType + Approval Matrix (Sửa + Lưu trên UI) |
 | System Prompt | File Git theo stage; ghép injection_guard lúc load |
 | Queue | Hàng đợi Local LLM, trạng thái realtime |
 | Document Pipeline | Parse `.docx` → (HĐ khung) so khớp template → checklist → LLM → A/B → render |

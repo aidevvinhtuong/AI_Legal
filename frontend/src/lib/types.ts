@@ -1,4 +1,21 @@
-export type UserRole = "purchasing" | "legal" | "legal_lead" | "it";
+export type UserRole =
+  | "purchasing"
+  | "purchasing_manager"
+  | "legal"
+  | "legal_lead"
+  | "it";
+
+export type UserDepartment = "Purchasing" | "IT" | "Legal";
+
+/** Quyền theo hạng mục — catalog & UI tick ở `lib/permissions.ts`. */
+export type PermissionKey =
+  | "task"
+  | "contracts"
+  | "contracts_create"
+  | "contract_config"
+  | "form_lists"
+  | "system_prompts"
+  | "users";
 
 export type ContractGroup = "framework" | "vendor";
 
@@ -8,6 +25,7 @@ export type ReviewStatus =
   | "processing"
   | "reviewed"
   | "awaiting_markers"
+  | "pending_manager"
   | "pending_legal"
   | "rejected"
   | "approved"
@@ -31,11 +49,37 @@ export type EcontractSignType =
   | "sign_fca.passcode"
   | "sign_ekyc";
 
+/** Tài khoản hệ thống (IT quản trị). */
+export interface AppUser {
+  id: string;
+  username: string;
+  /** Mật khẩu mock — bản thật sẽ hash phía backend. */
+  password: string;
+  email: string;
+  phone: string;
+  department: UserDepartment;
+  role: UserRole;
+  /** Line Manager — user id (tuỳ chọn). */
+  lineManagerId?: string;
+  /**
+   * Quyền theo hạng mục (IT tick trên Users).
+   * Thiếu / rỗng → suy ra từ Role mặc định.
+   */
+  permissions: PermissionKey[];
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserSession {
   token: string;
+  userId: string;
+  username: string;
   name: string;
   email: string;
   role: UserRole;
+  department: UserDepartment;
+  permissions: PermissionKey[];
 }
 
 export interface DocumentCategory {
@@ -57,6 +101,7 @@ export type DiscountFlag = "yes" | "no";
 
 /** Metadata nhập ở bước "Tạo tài liệu" (mockup Econtract / intake). */
 export interface DocumentIntakeMeta {
+  /** Loại hợp đồng / Contract category (HQP / RAW / MRO / CAP / LOG). */
   documentCategoryId: string;
   documentCategoryLabel: string;
   documentName: string;
@@ -239,6 +284,8 @@ export interface ContractReview {
   group: ContractGroup;
   status: ReviewStatus;
   ownerName: string;
+  /** User id chủ sở hữu — dùng lọc scope Purchasing / Line Manager. */
+  ownerId?: string;
   fileName: string;
   /** Nhiều file đính kèm khi tạo (file chính = fileName) */
   fileNames?: string[];
