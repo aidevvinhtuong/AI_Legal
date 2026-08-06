@@ -45,7 +45,7 @@ Purchasing input → Queue → AI handle → Purchasing gán marker ký số
 
 ## Số tài liệu (Document number)
 
-Tự sinh khi tạo / lưu nháp — **user không sửa được**.
+Tự sinh khi tạo / lưu nháp — **user không sửa được** (field read-only, không ghi chú phụ trên UI).
 
 - **Format:** `(Mã công ty).(Mã loại hợp đồng).NămYY + STT`  
   Ví dụ: `VTS.HQP.260001`
@@ -53,9 +53,13 @@ Tự sinh khi tạo / lưu nháp — **user không sửa được**.
 - **Mã loại hợp đồng** = `documentCategories.code` (Form lists → Loại hợp đồng / Contract category, vd HQP, RAW, LOG)
 - **STT** tăng theo **từng công ty** trong năm (không phụ thuộc loại HĐ)
 
+### Thứ tự field form Tạo tài liệu (rút gọn)
+
+1. Loại hợp đồng → 2. Tên hợp đồng → **3. Công ty** → 4. Tên tài liệu → 5. Số tài liệu (tự sinh) → 6. Ngày ký → 7. Loại giá trị HĐ → 8. Hợp đồng tiêu chuẩn → 9–11. Chiết khấu / giá trị → Upload
+
 ## Luồng người dùng
 
-1. **Khởi tạo** — Chọn loại HĐ, upload `.docx`, nhập prompt; Số tài liệu tự sinh sau khi chọn Công ty + Loại hợp đồng  
+1. **Khởi tạo** — Chọn Loại HĐ + Công ty (trước Tên tài liệu), upload `.docx`; Số tài liệu tự sinh khi đủ Công ty + Loại hợp đồng  
    - HĐ khung: đối chiếu template → không khớp thì **chặn** (fail-fast)  
    - HĐ NCC/khác: quét vùng mở theo thứ tự **Range Permission** (`w:permStart`/`w:permEnd`) → Content Control → Legacy Form Field
 2. **AI xử lý** — Processing Queue; đề xuất **Loại A** (vùng mở) / **Loại B** (vùng khoá)

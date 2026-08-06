@@ -15,7 +15,7 @@ import type {
   UserSession,
 } from "@/lib/types";
 
-const STORAGE_KEY = "ai_econtract_users_v3";
+const STORAGE_KEY = "ai_econtract_users_v4";
 
 export const USER_ROLES: { value: UserRole; label: string }[] = [
   { value: "purchasing", label: "Purchasing" },
@@ -39,10 +39,15 @@ function nowIso() {
 }
 
 function withPermissions(
-  user: Omit<AppUser, "permissions"> & { permissions?: PermissionKey[] }
+  user: Omit<AppUser, "permissions" | "fullName"> & {
+    permissions?: PermissionKey[];
+    fullName?: string;
+  }
 ): AppUser {
+  const fullName = (user.fullName || "").trim() || user.username;
   return {
     ...user,
+    fullName,
     permissions: normalizePermissions(user.permissions, user.role),
   };
 }
@@ -54,6 +59,7 @@ export function defaultUsers(): AppUser[] {
     withPermissions({
       id: "usr_admin",
       username: "admin",
+      fullName: "Nguyễn Admin",
       password: "admin",
       email: "admin@saint-gobain.com",
       phone: "",
@@ -66,6 +72,7 @@ export function defaultUsers(): AppUser[] {
     withPermissions({
       id: managerId,
       username: "manager.pur",
+      fullName: "Lê Thị Manager",
       password: "demo123",
       email: "manager.pur@saint-gobain.com",
       phone: "0901000001",
@@ -78,6 +85,7 @@ export function defaultUsers(): AppUser[] {
     withPermissions({
       id: "usr_purchasing_a",
       username: "van.a",
+      fullName: "Nguyễn Văn A",
       password: "demo123",
       email: "purchasing@saint-gobain.com",
       phone: "0901000002",
@@ -91,6 +99,7 @@ export function defaultUsers(): AppUser[] {
     withPermissions({
       id: "usr_legal",
       username: "legal",
+      fullName: "Trần Thị Legal",
       password: "demo123",
       email: "legal@saint-gobain.com",
       phone: "0901000003",
@@ -139,7 +148,7 @@ export function toSession(user: AppUser): UserSession {
     token: `mock-${user.id}-token`,
     userId: user.id,
     username: user.username,
-    name: user.username,
+    name: user.fullName || user.username,
     email: user.email,
     role: user.role,
     department: user.department,
@@ -149,6 +158,7 @@ export function toSession(user: AppUser): UserSession {
 
 export type UserInput = {
   username: string;
+  fullName: string;
   password?: string;
   email: string;
   phone: string;
@@ -162,6 +172,7 @@ export type UserInput = {
 export function emptyUserInput(): UserInput {
   return {
     username: "",
+    fullName: "",
     password: "",
     email: "",
     phone: "",
@@ -173,6 +184,22 @@ export function emptyUserInput(): UserInput {
   };
 }
 
+/** Họ tên ưu tiên từ User store theo ownerId. */
+export function displayFullName(opts: {
+  ownerId?: string | null;
+  ownerName?: string | null;
+  username?: string | null;
+}): string {
+  if (opts.ownerId) {
+    const u = getUserById(opts.ownerId);
+    if (u?.fullName?.trim()) return u.fullName.trim();
+    if (u?.username) return u.username;
+  }
+  const raw = (opts.ownerName || opts.username || "").trim();
+  if (!raw) return "—";
+  return raw.replace(/\s*\([^)]*\)\s*$/, "").trim() || raw;
+}
+
 export function createUser(input: UserInput): AppUser {
   const users = loadUsers();
   const uname = input.username.trim();
@@ -182,9 +209,12 @@ export function createUser(input: UserInput): AppUser {
     throw new Error("Username đã tồn tại");
   }
   const ts = nowIso();
+  const fullName = input.fullName.trim();
+  if (!fullName) throw new Error("Họ tên bắt buộc");
   const user = withPermissions({
     id: `usr_${Date.now()}`,
     username: uname,
+    fullName,
     password: input.password,
     email: input.email.trim(),
     phone: input.phone.trim(),
@@ -217,10 +247,13 @@ export function updateUser(id: string, input: UserInput): AppUser {
   if (input.lineManagerId === id) {
     throw new Error("Line Manager không thể là chính user đó");
   }
+  const fullName = input.fullName.trim();
+  if (!fullName) throw new Error("Họ tên bắt buộc");
   const prev = users[idx];
   const next = withPermissions({
     ...prev,
     username: uname,
+    fullName,
     email: input.email.trim(),
     phone: input.phone.trim(),
     department: input.department,

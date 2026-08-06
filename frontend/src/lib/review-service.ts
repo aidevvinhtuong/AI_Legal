@@ -312,9 +312,7 @@ export async function createReview(input: {
       originalDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
       reviewedDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
       prompt: input.prompt || "",
-      ownerName: session
-        ? `${session.name} (${session.role === "purchasing_manager" ? "Purchasing Manager" : "Purchasing"})`
-        : "Purchasing",
+      ownerName: session?.name || "Purchasing",
       ownerId: session?.userId,
       confidence: 0,
       proposals: [],
