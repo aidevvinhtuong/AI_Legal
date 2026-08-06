@@ -53,6 +53,8 @@ export type EcontractSignType =
 export interface AppUser {
   id: string;
   username: string;
+  /** Họ tên hiển thị (Task, người yêu cầu, header…). */
+  fullName: string;
   /** Mật khẩu mock — bản thật sẽ hash phía backend. */
   password: string;
   email: string;

@@ -108,6 +108,7 @@ export default function UsersPage() {
     setEditingId(u.id);
     setForm({
       username: u.username,
+      fullName: u.fullName || "",
       password: "",
       email: u.email,
       phone: u.phone,
@@ -182,7 +183,9 @@ export default function UsersPage() {
 
   const managerName = (id?: string) => {
     if (!id) return "—";
-    return users.find((u) => u.id === id)?.username || id;
+    const u = users.find((x) => x.id === id);
+    if (!u) return id;
+    return u.fullName ? `${u.fullName} (${u.username})` : u.username;
   };
 
   if (loading) {
@@ -226,6 +229,7 @@ export default function UsersPage() {
                 <thead>
                   <tr className="border-b text-left text-xs uppercase text-muted-foreground">
                     <th className="py-2.5 pr-3 font-medium">Username</th>
+                    <th className="py-2.5 pr-3 font-medium">Họ tên</th>
                     <th className="py-2.5 pr-3 font-medium">Role</th>
                     <th className="py-2.5 pr-3 font-medium">Quyền</th>
                     <th className="py-2.5 pr-3 font-medium">Line Manager</th>
@@ -244,6 +248,9 @@ export default function UsersPage() {
                         <div className="text-xs text-muted-foreground">
                           {u.email || "—"} · {u.department}
                         </div>
+                      </td>
+                      <td className="py-2.5 pr-3 font-medium">
+                        {u.fullName || "—"}
                       </td>
                       <td className="py-2.5 pr-3">
                         <Badge variant="secondary">{roleLabel(u.role)}</Badge>
@@ -309,6 +316,16 @@ export default function UsersPage() {
                   setForm((f) => ({ ...f, username: e.target.value }))
                 }
                 placeholder="vd: van.a"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Họ tên</Label>
+              <Input
+                value={form.fullName}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, fullName: e.target.value }))
+                }
+                placeholder="vd: Nguyễn Văn A"
               />
             </div>
             <div className="space-y-1.5">
@@ -415,7 +432,7 @@ export default function UsersPage() {
                   <SelectItem value="__none__">— Không có —</SelectItem>
                   {managerOptions.map((u) => (
                     <SelectItem key={u.id} value={u.id}>
-                      {u.username} ({roleLabel(u.role)})
+                      {u.fullName || u.username} ({roleLabel(u.role)})
                     </SelectItem>
                   ))}
                 </SelectContent>

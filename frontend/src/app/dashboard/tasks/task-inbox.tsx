@@ -33,7 +33,7 @@ import {
   listReviews,
   managerDecide,
 } from "@/lib/review-service";
-import { subordinateIds } from "@/lib/user-store";
+import { displayFullName, subordinateIds } from "@/lib/user-store";
 import type {
   ContractReview,
   ContractTypeConfig,
@@ -52,6 +52,20 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
+
+/** Dòng Name trên bảng Task: Số tài liệu - Tên tài liệu / Họ tên người yêu cầu. */
+function taskNameLines(r: ContractReview) {
+  const docNo = r.intake?.documentNumber || r.code || "—";
+  const docName = r.intake?.documentName || r.title || "—";
+  const requester = displayFullName({
+    ownerId: r.ownerId,
+    ownerName: r.ownerName,
+  });
+  return {
+    primary: `${docNo} - ${docName}`,
+    requester,
+  };
+}
 
 export default function TaskInboxPage() {
   const { toast } = useToast();
@@ -332,18 +346,17 @@ export default function TaskInboxPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {managerTasks.map((r) => (
+                      {managerTasks.map((r) => {
+                        const name = taskNameLines(r);
+                        return (
                         <tr
                           key={r.id}
                           className="border-b last:border-0 hover:bg-muted/40"
                         >
                           <td className="py-3 pr-4">
-                            <div className="font-medium">
-                              {r.intake?.documentName || r.title}
-                            </div>
+                            <div className="font-medium">{name.primary}</div>
                             <div className="text-xs text-muted-foreground">
-                              {r.code} · {r.contractTypeLabel} · Owner:{" "}
-                              {r.ownerName}
+                              {name.requester}
                             </div>
                           </td>
                           <td className="py-3">
@@ -353,7 +366,8 @@ export default function TaskInboxPage() {
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -378,17 +392,17 @@ export default function TaskInboxPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {legalTasks.map((r) => (
+                      {legalTasks.map((r) => {
+                        const name = taskNameLines(r);
+                        return (
                         <tr
                           key={r.id}
                           className="border-b last:border-0 hover:bg-muted/40"
                         >
                           <td className="py-3 pr-4">
-                            <div className="font-medium">
-                              {r.intake?.documentName || r.title}
-                            </div>
+                            <div className="font-medium">{name.primary}</div>
                             <div className="text-xs text-muted-foreground">
-                              {r.code} · {r.contractTypeLabel}
+                              {name.requester}
                             </div>
                           </td>
                           <td className="py-3">
@@ -398,7 +412,8 @@ export default function TaskInboxPage() {
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -423,17 +438,17 @@ export default function TaskInboxPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {purchasingTasks.map((r) => (
+                      {purchasingTasks.map((r) => {
+                        const name = taskNameLines(r);
+                        return (
                         <tr
                           key={r.id}
                           className="border-b last:border-0 hover:bg-muted/40"
                         >
                           <td className="py-3 pr-4">
-                            <div className="font-medium">
-                              {r.intake?.documentName || r.title}
-                            </div>
+                            <div className="font-medium">{name.primary}</div>
                             <div className="text-xs text-muted-foreground">
-                              {r.code} · {r.contractTypeLabel}
+                              {name.requester}
                               {r.feedback?.[0]?.comment && (
                                 <span className="block mt-0.5 text-destructive/80 truncate max-w-md">
                                   Feedback: {r.feedback[0].comment}
@@ -453,7 +468,8 @@ export default function TaskInboxPage() {
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -483,11 +499,10 @@ export default function TaskInboxPage() {
         <div className="shrink-0 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold">
-              Review: {active.intake?.documentName || active.title}
+              Review: {taskNameLines(active).primary}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {active.code} · {active.contractTypeLabel} · Owner:{" "}
-              {active.ownerName} · % tin cậy: {active.confidence}%
+              {taskNameLines(active).requester} · % tin cậy: {active.confidence}%
             </p>
           </div>
           <Button variant="outline" onClick={backToList}>
