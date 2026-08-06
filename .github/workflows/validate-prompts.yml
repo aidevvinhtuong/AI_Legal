@@ -1,0 +1,24 @@
+name: Validate system prompts
+
+on:
+  pull_request:
+    paths:
+      - "prompts/**"
+      - "scripts/validate-prompts.js"
+      - "frontend/src/lib/system-prompts/**"
+  push:
+    paths:
+      - "prompts/**"
+      - "scripts/validate-prompts.js"
+
+jobs:
+  validate-prompts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate /prompts/**
+        run: node scripts/validate-prompts.js
+        working-directory: .
