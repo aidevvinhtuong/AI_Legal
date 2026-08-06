@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -15,8 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -26,12 +24,16 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import {
-  createChildContractType,
-  createParentContractCategory,
+  countReviewsUsingContractType,
+  deleteChildContractType,
+  ensureConfigForContractName,
+  ensureConfigForParentCategory,
   getConfigPermission,
   listConfigVersions,
+  listFormListContractNames,
   listMatrices,
   listParentCategories,
+  mergeParentAndChildConfig,
   pickChildLineConfig,
 } from "@/lib/config-service";
 import type {
@@ -39,29 +41,31 @@ import type {
   ContractParentCategory,
   ContractTypeConfigVersion,
 } from "@/lib/config-types";
+import type { ContractNameOption } from "@/lib/form-lists-store";
 import { getSession } from "@/lib/review-service";
 import { canAccessConfig } from "@/lib/roles";
-import type { ContractGroup } from "@/lib/types";
-import { Loader2, Plus, Settings2 } from "lucide-react";
+import { ArrowLeft, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
 
-type AddMode = "child" | "parent";
+type ConfirmAction = {
+  mode: "delete";
+  typeId: string;
+  label: string;
+  usage: number;
+};
 
 export default function ConfigListPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [configs, setConfigs] = useState<ContractTypeConfigVersion[]>([]);
   const [parents, setParents] = useState<ContractParentCategory[]>([]);
+  const [contractNames, setContractNames] = useState<ContractNameOption[]>([]);
   const [matrices, setMatrices] = useState<ApprovalMatrixConfig[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addingParentId, setAddingParentId] = useState<string | null>(null);
-  const [newChildLabel, setNewChildLabel] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [addMode, setAddMode] = useState<AddMode>("child");
-  const [formParentId, setFormParentId] = useState("");
-  const [formLabel, setFormLabel] = useState("");
-  const [formDescription, setFormDescription] = useState("");
-  const [formGroup, setFormGroup] = useState<ContractGroup>("framework");
+  const [confirm, setConfirm] = useState<ConfirmAction | null>(null);
+  const [busyTypeId, setBusyTypeId] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+  /** Tên HĐ đang chọn để thêm overlay — theo parent.id */
+  const [pickByParent, setPickByParent] = useState<Record<string, string>>({});
   const perm = getConfigPermission();
 
   const reload = () =>
@@ -69,10 +73,12 @@ export default function ConfigListPage() {
       listConfigVersions(),
       listMatrices(),
       listParentCategories(),
-    ]).then(([c, m, p]) => {
+      listFormListContractNames(),
+    ]).then(([c, m, p, names]) => {
       setConfigs(c);
       setMatrices(m);
       setParents(p);
+      setContractNames(names);
     });
 
   useEffect(() => {
@@ -93,104 +99,128 @@ export default function ConfigListPage() {
       .finally(() => setLoading(false));
   }, [router, toast]);
 
-  /** Parent → unique child types (1 line / contractTypeId). */
+  /**
+   * Chỉ hiện tên HĐ đã có overlay. Tên chưa cấu hình riêng không nằm trong bảng
+   * nhưng vẫn hưởng checklist loại cha khi AI review.
+   */
   const byParent = useMemo(() => {
     return parents.map((parent) => {
-      const under = configs.filter(
-        (c) =>
-          c.parentCategoryId === parent.id ||
-          (!c.parentCategoryId &&
-            ((parent.id === "purchase" && c.group === "framework") ||
-              (parent.id === "vendor" && c.group === "vendor")))
-      );
-      const byType = new Map<string, ContractTypeConfigVersion[]>();
-      for (const c of under) {
-        const arr = byType.get(c.contractTypeId) || [];
-        arr.push(c);
-        byType.set(c.contractTypeId, arr);
-      }
-      const lines = Array.from(byType.entries())
-        .map(([typeId, versions]) => ({
-          typeId,
-          config: pickChildLineConfig(versions)!,
-        }))
-        .filter((x) => x.config)
-        .sort((a, b) => a.config.label.localeCompare(b.config.label, "vi"));
-      return { parent, lines };
-    });
-  }, [configs, parents]);
+      const parentVersions = configs.filter((c) => c.contractTypeId === parent.id);
+      const parentConfig = pickChildLineConfig(parentVersions);
 
-  const matrixName = (id: string | null) => {
+      const allNames = contractNames
+        .filter((n) => n.documentCategoryId === parent.id)
+        .sort((a, b) => a.label.localeCompare(b.label, "vi"));
+
+      const configured = allNames
+        .map((name) => {
+          const versions = configs.filter((c) => c.contractTypeId === name.id);
+          const config = pickChildLineConfig(versions);
+          if (!config) return null;
+          const merged = mergeParentAndChildConfig(parentConfig, config);
+          return {
+            typeId: name.id,
+            name,
+            config,
+            usage: countReviewsUsingContractType(name.id),
+            merged,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => !!x);
+
+      const availableToAdd = allNames.filter(
+        (n) => !configured.some((c) => c.typeId === n.id)
+      );
+
+      return {
+        parent,
+        parentConfig,
+        allNamesCount: allNames.length,
+        lines: configured,
+        availableToAdd,
+      };
+    });
+  }, [configs, parents, contractNames]);
+
+  const matrixName = (id: string | null | undefined) => {
     if (!id) return "Global mặc định";
     return matrices.find((m) => m.id === id)?.name || id;
   };
 
-  const openAddDialog = (mode: AddMode = "child", parentId?: string) => {
-    setAddMode(mode);
-    setFormParentId(parentId || parents[0]?.id || "");
-    setFormLabel("");
-    setFormDescription("");
-    setFormGroup("framework");
-    setAddOpen(true);
+  const openConfirm = (typeId: string, label: string) => {
+    setConfirm({
+      mode: "delete",
+      typeId,
+      label,
+      usage: countReviewsUsingContractType(typeId),
+    });
   };
 
-  const handleAddChild = async (parentId: string, label: string) => {
-    if (!perm.canEditDraft) {
-      toast({ title: "Không có quyền tạo loại con", variant: "destructive" });
-      return;
-    }
-    setCreating(true);
+  const handleOpenParentConfig = async (categoryId: string) => {
+    setOpeningId(`parent:${categoryId}`);
     try {
-      const child = await createChildContractType(parentId, label);
-      toast({ title: "Đã thêm loại hợp đồng", description: child.label });
-      setNewChildLabel("");
-      setAddingParentId(null);
-      setAddOpen(false);
-      await reload();
-      router.push(`/dashboard/config/${child.id}`);
+      const cfg = await ensureConfigForParentCategory(categoryId);
+      router.push(`/dashboard/config/${cfg.id}`);
     } catch (e) {
       toast({
-        title: "Không tạo được loại hợp đồng",
+        title: "Không mở được cấu hình loại cha",
         description: e instanceof Error ? e.message : "Lỗi",
         variant: "destructive",
       });
     } finally {
-      setCreating(false);
+      setOpeningId(null);
     }
   };
 
-  const handleAddParent = async () => {
-    if (!perm.canEditDraft) {
-      toast({ title: "Không có quyền tạo loại hợp đồng", variant: "destructive" });
-      return;
-    }
-    setCreating(true);
+  const handleOpenChildConfig = async (typeId: string) => {
+    setOpeningId(typeId);
     try {
-      const parent = await createParentContractCategory({
-        label: formLabel,
-        description: formDescription,
-        group: formGroup,
-      });
-      toast({ title: "Đã thêm loại hợp đồng cha", description: parent.label });
-      setAddOpen(false);
-      await reload();
+      const cfg = await ensureConfigForContractName(typeId);
+      router.push(`/dashboard/config/${cfg.id}`);
     } catch (e) {
       toast({
-        title: "Không tạo được loại cha",
+        title: "Không mở được cấu hình riêng",
         description: e instanceof Error ? e.message : "Lỗi",
         variant: "destructive",
       });
     } finally {
-      setCreating(false);
+      setOpeningId(null);
     }
   };
 
-  const handleSubmitAdd = async () => {
-    if (addMode === "parent") {
-      await handleAddParent();
+  const handleAddChildConfig = async (parentId: string) => {
+    const typeId = pickByParent[parentId];
+    if (!typeId) {
+      toast({
+        title: "Chọn tên hợp đồng",
+        description: "Chọn tên HĐ cần thêm cấu hình riêng.",
+        variant: "destructive",
+      });
       return;
     }
-    await handleAddChild(formParentId, formLabel);
+    await handleOpenChildConfig(typeId);
+  };
+
+  const handleConfirmAction = async () => {
+    if (!confirm) return;
+    setBusyTypeId(confirm.typeId);
+    try {
+      await deleteChildContractType(confirm.typeId);
+      toast({
+        title: "Đã xóa checklist riêng",
+        description: `${confirm.label} — vẫn kế thừa checklist loại cha; không còn hiện trong danh sách.`,
+      });
+      setConfirm(null);
+      await reload();
+    } catch (e) {
+      toast({
+        title: "Không thực hiện được",
+        description: e instanceof Error ? e.message : "Lỗi",
+        variant: "destructive",
+      });
+    } finally {
+      setBusyTypeId(null);
+    }
   };
 
   return (
@@ -199,16 +229,17 @@ export default function ConfigListPage() {
         <div>
           <h1 className="text-2xl font-semibold">Cấu hình theo loại hợp đồng</h1>
           <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-            Mỗi loại hợp đồng cha có nhiều loại con (line). Checklist · Approval Matrix ·
-            Ideal/Fallback/Red Line theo từng điều khoản · phân quyền cấu hình riêng.
+            Cấu hình chính ở <strong>loại cha</strong> — mọi tên HĐ con được hưởng.
+            Chỉ hiện tên HĐ đã chọn cấu hình riêng (overlay); tên chưa cấu hình
+            không nằm trong danh sách nhưng vẫn dùng checklist cha.
           </p>
         </div>
-        {perm.canEditDraft && (
-          <Button size="sm" onClick={() => openAddDialog("child")}>
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            Thêm loại hợp đồng
-          </Button>
-        )}
+        <Button size="sm" variant="outline" asChild>
+          <Link href="/dashboard">
+            <ArrowLeft className="h-3.5 w-3.5 mr-1" />
+            Quay lại
+          </Link>
+        </Button>
       </div>
 
       {loading ? (
@@ -217,271 +248,280 @@ export default function ConfigListPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {byParent.map(({ parent, lines }) => (
-            <Card key={parent.id}>
-              <CardHeader className="pb-3">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <CardTitle className="text-base">{parent.label}</CardTitle>
-                    <CardDescription>
-                      {lines.length} loại con
-                      {parent.description ? ` · ${parent.description}` : ""}
-                    </CardDescription>
-                  </div>
-                  {perm.canEditDraft && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setAddingParentId(
-                          addingParentId === parent.id ? null : parent.id
-                        );
-                        setNewChildLabel("");
-                      }}
-                    >
-                      <Plus className="h-3.5 w-3.5 mr-1" />
-                      Thêm loại con
-                    </Button>
-                  )}
-                </div>
-                {addingParentId === parent.id && (
-                  <div className="mt-3 flex flex-wrap items-end gap-2 rounded-md border bg-muted/20 p-3">
-                    <div className="space-y-1.5 flex-1 min-w-[200px]">
-                      <Label htmlFor={`child-${parent.id}`}>
-                        Tên loại hợp đồng con
-                      </Label>
-                      <Input
-                        id={`child-${parent.id}`}
-                        value={newChildLabel}
-                        onChange={(e) => setNewChildLabel(e.target.value)}
-                        placeholder="VD: Hợp đồng khung vật tư"
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter")
-                            handleAddChild(parent.id, newChildLabel);
-                        }}
-                      />
-                    </div>
-                    <Button
-                      size="sm"
-                      disabled={creating || !newChildLabel.trim()}
-                      onClick={() => handleAddChild(parent.id, newChildLabel)}
-                    >
-                      {creating ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
-                      ) : (
-                        <Plus className="h-3.5 w-3.5 mr-1" />
-                      )}
-                      Tạo
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={creating}
-                      onClick={() => setAddingParentId(null)}
-                    >
-                      Huỷ
-                    </Button>
-                  </div>
-                )}
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b text-left text-muted-foreground text-xs">
-                        <th className="py-2 pr-3 font-medium">Loại con</th>
-                        <th className="py-2 pr-3 font-medium">Clauses</th>
-                        <th className="py-2 pr-3 font-medium">Approval Matrix</th>
-                        <th className="py-2 pr-3 font-medium">AI tiers</th>
-                        <th className="py-2 pr-3 font-medium">Template</th>
-                        <th className="py-2 font-medium">Thao tác</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={6}
-                            className="py-6 text-center text-muted-foreground text-sm"
+          {byParent.map(
+            ({
+              parent,
+              parentConfig,
+              allNamesCount,
+              lines,
+              availableToAdd,
+            }) => (
+              <Card key={parent.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <CardTitle className="text-base">
+                          {parent.label}
+                        </CardTitle>
+                        <Badge variant="secondary" className="text-[11px]">
+                          Loại cha
+                        </Badge>
+                        {parentConfig ? (
+                          <Badge variant="outline" className="text-[11px]">
+                            Cha: {parentConfig.clauses.length} điều khoản
+                          </Badge>
+                        ) : (
+                          <Badge
+                            variant="outline"
+                            className="text-[11px] text-muted-foreground"
                           >
-                            Chưa có loại con — bấm Thêm loại hợp đồng hoặc Thêm loại
-                            con.
-                          </td>
+                            Chưa cấu hình loại cha
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Button
+                        size="sm"
+                        disabled={openingId === `parent:${parent.id}`}
+                        onClick={() => handleOpenParentConfig(parent.id)}
+                      >
+                        {openingId === `parent:${parent.id}` ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <Settings2 className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Cấu hình
+                      </Button>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {perm.canEditDraft && availableToAdd.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        Thêm cấu hình riêng cho
+                      </span>
+                      <Select
+                        value={pickByParent[parent.id] || undefined}
+                        onValueChange={(v) =>
+                          setPickByParent((prev) => ({
+                            ...prev,
+                            [parent.id]: v,
+                          }))
+                        }
+                      >
+                        <SelectTrigger className="h-9 w-[240px] bg-background">
+                          <SelectValue placeholder="Chọn tên hợp đồng…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {availableToAdd.map((n) => (
+                            <SelectItem key={n.id} value={n.id}>
+                              {n.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={
+                          !pickByParent[parent.id] ||
+                          openingId === pickByParent[parent.id]
+                        }
+                        onClick={() => handleAddChildConfig(parent.id)}
+                      >
+                        {openingId === pickByParent[parent.id] ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                        ) : (
+                          <Plus className="h-3.5 w-3.5 mr-1" />
+                        )}
+                        Thêm
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b text-left text-muted-foreground text-xs">
+                          <th className="py-2 pr-3 font-medium">
+                            Tên hợp đồng
+                          </th>
+                          <th className="py-2 pr-3 font-medium">
+                            AI gộp (cha+con)
+                          </th>
+                          <th className="py-2 pr-3 font-medium">
+                            Approval Matrix
+                          </th>
+                          <th className="py-2 pr-3 font-medium">AI tiers</th>
+                          <th className="py-2 pr-3 font-medium">Template</th>
+                          <th className="py-2 font-medium">Thao tác</th>
                         </tr>
-                      ) : (
-                        lines.map(({ typeId, config: v }) => (
-                          <tr key={typeId} className="border-b last:border-0">
-                            <td className="py-2.5 pr-3">
-                              <div className="font-medium">{v.label}</div>
-                              <div className="text-[11px] text-muted-foreground">
-                                {typeId}
-                              </div>
-                            </td>
-                            <td className="py-2.5 pr-3">{v.clauses.length}</td>
-                            <td className="py-2.5 pr-3 max-w-[200px] truncate">
-                              {matrixName(v.approvalMatrixId)}
-                            </td>
-                            <td className="py-2.5 pr-3 text-xs text-muted-foreground">
-                              {v.aiTiers.ruleBasedEnabled ? "rule" : "—"}
-                              {v.aiTiers.semanticEnabled ? " + semantic" : ""}
-                            </td>
-                            <td className="py-2.5 pr-3">
-                              <Badge variant="outline" className="text-[11px]">
-                                {v.requireTemplateMatch ? "Bắt buộc" : "Không"}
-                              </Badge>
-                            </td>
-                            <td className="py-2.5">
-                              <Button size="sm" variant="ghost" asChild>
-                                <Link href={`/dashboard/config/${v.id}`}>
-                                  <Settings2 className="h-3.5 w-3.5 mr-1" />
-                                  Mở
-                                </Link>
-                              </Button>
+                      </thead>
+                      <tbody>
+                        {lines.length === 0 ? (
+                          <tr>
+                            <td
+                              colSpan={6}
+                              className="py-6 text-center text-muted-foreground text-sm"
+                            >
+                              {allNamesCount === 0 ? (
+                                <>
+                                  Chưa có Tên hợp đồng trên Form lists — thêm tại{" "}
+                                  <Link
+                                    href="/dashboard/configurations"
+                                    className="underline font-medium text-foreground"
+                                  >
+                                    Form lists
+                                  </Link>
+                                  .
+                                </>
+                              ) : (
+                                <>
+                                  Chưa có tên HĐ cấu hình riêng. Các tên vẫn hưởng
+                                  checklist loại cha — chọn tên ở trên rồi bấm
+                                  Thêm nếu cần overlay.
+                                </>
+                              )}
                             </td>
                           </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                        ) : (
+                          lines.map(
+                            ({ typeId, name, config, usage, merged }) => (
+                              <tr
+                                key={typeId}
+                                className="border-b last:border-0"
+                              >
+                                <td className="py-2.5 pr-3 font-medium text-foreground">
+                                  {name.label}
+                                </td>
+                                <td className="py-2.5 pr-3 font-medium">
+                                  {merged.clauses.length}
+                                </td>
+                                <td className="py-2.5 pr-3 max-w-[200px] truncate">
+                                  {matrixName(merged.approvalMatrixId)}
+                                </td>
+                                <td className="py-2.5 pr-3 text-xs text-muted-foreground">
+                                  {merged.aiTiers.ruleBasedEnabled
+                                    ? "rule"
+                                    : "—"}
+                                  {merged.aiTiers.semanticEnabled
+                                    ? " + semantic"
+                                    : ""}
+                                </td>
+                                <td className="py-2.5 pr-3">
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[11px]"
+                                  >
+                                    {merged.requireTemplateMatch
+                                      ? "Bắt buộc"
+                                      : "Không"}
+                                  </Badge>
+                                </td>
+                                <td className="py-2.5">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      disabled={openingId === typeId}
+                                      onClick={() =>
+                                        handleOpenChildConfig(typeId)
+                                      }
+                                    >
+                                      {openingId === typeId ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                                      ) : (
+                                        <Settings2 className="h-3.5 w-3.5 mr-1" />
+                                      )}
+                                      Cấu hình
+                                    </Button>
+                                    {perm.canEditDraft && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-destructive hover:text-destructive"
+                                        disabled={
+                                          busyTypeId === typeId ||
+                                          usage > 0 ||
+                                          !config
+                                        }
+                                        onClick={() =>
+                                          openConfirm(typeId, name.label)
+                                        }
+                                        title={
+                                          usage > 0
+                                            ? `Không xóa được — đang dùng bởi ${usage} HĐ`
+                                            : "Xóa overlay — tên biến mất khỏi danh sách, vẫn kế thừa cha"
+                                        }
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5 mr-1" />
+                                        Xóa
+                                      </Button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          )
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          )}
         </div>
       )}
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog
+        open={!!confirm}
+        onOpenChange={(open) => {
+          if (!open && !busyTypeId) setConfirm(null);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Thêm loại hợp đồng</DialogTitle>
-            <DialogDescription>
-              Tạo loại cha (nhóm) hoặc loại con (line checklist) mới.
+            <DialogTitle>Xóa checklist riêng</DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <p>
+                  Tên:{" "}
+                  <span className="font-medium text-foreground">
+                    {confirm?.label}
+                  </span>
+                </p>
+                <p>
+                  Xóa overlay — tên không còn trong danh sách này. Checklist loại
+                  cha vẫn áp dụng khi AI review.
+                </p>
+              </div>
             </DialogDescription>
           </DialogHeader>
-
-          <div className="space-y-4 py-1">
-            <div className="flex rounded-md border p-1 bg-muted/40">
-              <button
-                type="button"
-                className={`flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${
-                  addMode === "child"
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground"
-                }`}
-                onClick={() => setAddMode("child")}
-              >
-                Loại con
-              </button>
-              <button
-                type="button"
-                className={`flex-1 rounded-sm px-3 py-1.5 text-sm font-medium transition-colors ${
-                  addMode === "parent"
-                    ? "bg-background shadow-sm text-foreground"
-                    : "text-muted-foreground"
-                }`}
-                onClick={() => setAddMode("parent")}
-              >
-                Loại cha
-              </button>
-            </div>
-
-            {addMode === "child" ? (
-              <>
-                <div className="space-y-2">
-                  <Label>Thuộc loại cha</Label>
-                  <Select value={formParentId} onValueChange={setFormParentId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Chọn loại cha" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {parents.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-contract-label">Tên loại hợp đồng</Label>
-                  <Input
-                    id="new-contract-label"
-                    value={formLabel}
-                    onChange={(e) => setFormLabel(e.target.value)}
-                    placeholder="VD: Hợp đồng khung vật tư"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && formLabel.trim() && formParentId) {
-                        handleSubmitAdd();
-                      }
-                    }}
-                  />
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label htmlFor="new-parent-label">Tên loại hợp đồng cha</Label>
-                  <Input
-                    id="new-parent-label"
-                    value={formLabel}
-                    onChange={(e) => setFormLabel(e.target.value)}
-                    placeholder="VD: Hợp đồng dịch vụ nội bộ"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-parent-desc">Mô tả (tuỳ chọn)</Label>
-                  <Input
-                    id="new-parent-desc"
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    placeholder="Mô tả ngắn cho nhóm này"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Nhóm nghiệp vụ</Label>
-                  <Select
-                    value={formGroup}
-                    onValueChange={(v) => setFormGroup(v as ContractGroup)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="framework">
-                        Mua hàng / khung
-                      </SelectItem>
-                      <SelectItem value="vendor">NCC / khác</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-          </div>
-
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
-              disabled={creating}
-              onClick={() => setAddOpen(false)}
+              disabled={!!busyTypeId}
+              onClick={() => setConfirm(null)}
             >
               Huỷ
             </Button>
             <Button
               type="button"
-              disabled={
-                creating ||
-                !formLabel.trim() ||
-                (addMode === "child" && !formParentId)
-              }
-              onClick={handleSubmitAdd}
+              variant="destructive"
+              disabled={!!busyTypeId}
+              onClick={handleConfirmAction}
             >
-              {creating ? (
+              {busyTypeId ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
               ) : (
-                <Plus className="h-3.5 w-3.5 mr-1" />
+                <Trash2 className="h-3.5 w-3.5 mr-1" />
               )}
-              Tạo
+              Xóa
             </Button>
           </DialogFooter>
         </DialogContent>

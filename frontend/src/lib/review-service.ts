@@ -157,7 +157,9 @@ export async function listContractTypes(): Promise<ContractTypeConfig[]> {
 export async function listDocumentCategories(): Promise<DocumentCategory[]> {
   if (USE_MOCK) {
     await delay(100);
-    return loadFormLists().documentCategories;
+    return loadFormLists().documentCategories.filter(
+      (c) => c.status !== "archived"
+    );
   }
   return api.get("/api/document-categories");
 }
@@ -173,7 +175,9 @@ export async function listDiscountOptions(): Promise<DiscountOption[]> {
 export async function listBusinessEntities(): Promise<CodeLabelOption[]> {
   if (USE_MOCK) {
     await delay(50);
-    return loadFormLists().businessEntities;
+    return loadFormLists().businessEntities.filter(
+      (e) => e.status !== "archived"
+    );
   }
   return api.get("/api/business-entities");
 }
@@ -181,7 +185,9 @@ export async function listBusinessEntities(): Promise<CodeLabelOption[]> {
 export async function listContractBases(): Promise<CodeLabelOption[]> {
   if (USE_MOCK) {
     await delay(50);
-    return loadFormLists().contractBases;
+    return loadFormLists().contractBases.filter(
+      (b) => b.status !== "archived"
+    );
   }
   return api.get("/api/contract-bases");
 }
@@ -189,7 +195,9 @@ export async function listContractBases(): Promise<CodeLabelOption[]> {
 export async function listContractNames(): Promise<ContractNameOption[]> {
   if (USE_MOCK) {
     await delay(50);
-    return loadFormLists().contractNames;
+    return loadFormLists().contractNames.filter(
+      (n) => n.status !== "archived"
+    );
   }
   return api.get("/api/contract-names");
 }

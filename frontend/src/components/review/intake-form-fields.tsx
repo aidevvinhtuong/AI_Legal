@@ -147,7 +147,9 @@ export function IntakeFormFields({
   const selectedType = types.find((t) => t.id === value.contractTypeId);
   const filteredContractNames = value.documentCategoryId
     ? contractNames.filter(
-        (n) => n.documentCategoryId === value.documentCategoryId
+        (n) =>
+          n.documentCategoryId === value.documentCategoryId &&
+          n.status !== "archived"
       )
     : [];
 

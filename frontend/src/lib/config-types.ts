@@ -120,15 +120,29 @@ export interface ApprovalMatrixConfig {
 }
 
 /**
+ * Lớp cấu hình:
+ * - parent: gắn Loại hợp đồng (documentCategories.id) — mọi Tên HĐ con được hưởng.
+ * - child: gắn Tên hợp đồng (contractNames.id) — bổ sung / ghi đè theo mã điều khoản.
+ * AI runtime gộp parent ∪ child (cùng code → child thắng).
+ */
+export type ConfigLayer = "parent" | "child";
+
+/**
  * Một phiên bản cấu hình theo loại hợp đồng.
  * Sprint 1: sửa trực tiếp + Lưu — không workflow Draft/Publish.
  */
 export interface ContractTypeConfigVersion {
   id: string;
-  /** Khóa nghiệp vụ loại HĐ (ổn định). */
+  /**
+   * Khóa nghiệp vụ ổn định:
+   * - parent: documentCategories.id (vd hqp)
+   * - child: contractNames.id (vd cn_hqp_hqp_tour)
+   */
   contractTypeId: string;
-  /** Loại HĐ cha — một cha có nhiều loại con (line). */
+  /** Loại HĐ cha (documentCategories.id). Parent: trùng contractTypeId. */
   parentCategoryId: string;
+  /** parent = cấu hình chung loại; child = overlay tên HĐ. Mặc định suy ra nếu thiếu. */
+  configLayer?: ConfigLayer;
   label: string;
   group: ContractGroup;
   lifecycle: ConfigLifecycle;
@@ -181,6 +195,8 @@ export type ConfigAuditAction =
   | "test_preview"
   | "publish"
   | "archive"
+  | "restore"
+  | "delete"
   | "import_excel"
   | "export_excel";
 

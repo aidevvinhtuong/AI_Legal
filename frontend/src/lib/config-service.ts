@@ -4,6 +4,7 @@ import {
   type ChecklistClause,
   type ConfigAuditAction,
   type ConfigAuditEntry,
+  type ConfigLayer,
   type ConfigPermission,
   type ContractParentCategory,
   type ContractTypeConfigVersion,
@@ -13,13 +14,17 @@ import {
   loadConfigAudit,
   loadConfigVersions,
   loadMatrices,
-  loadParentCategories,
   saveConfigAudit,
   saveConfigVersions,
-  saveParentCategories,
 } from "@/lib/config-mock";
+import {
+  loadFormLists,
+  saveFormLists,
+  type ContractNameOption,
+} from "@/lib/form-lists-store";
+import { loadReviews } from "@/lib/mock-data";
 import { getSession } from "@/lib/review-service";
-import type { ContractGroup, UserRole } from "@/lib/types";
+import type { ContractGroup, DocumentCategory, UserRole } from "@/lib/types";
 
 function delay(ms = 250) {
   return new Promise((r) => setTimeout(r, ms));
@@ -266,138 +271,646 @@ export async function runTestPreview(
   return updated;
 }
 
-function slugifyLabel(label: string, max = 40): string {
-  return label
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_|_$/g, "")
-    .slice(0, max);
-}
-
+/**
+ * Loại hợp đồng cha = Form lists → Loại hợp đồng (documentCategories).
+ * Không tạo loại cha riêng trên màn Cấu hình HĐ.
+ */
 export async function listParentCategories(): Promise<ContractParentCategory[]> {
   if (USE_MOCK) {
     await delay(80);
-    return loadParentCategories();
+    const cats = loadFormLists().documentCategories.filter(
+      (c: DocumentCategory) => c.status !== "archived"
+    );
+    return cats.map((c: DocumentCategory) => ({
+      id: c.id,
+      label: c.label?.includes(c.code) ? c.label : `${c.code} — ${c.label}`,
+      description: `Loại hợp đồng Form lists (mã ${c.code})`,
+      group: "framework" as ContractGroup,
+    }));
   }
   throw new Error("API chưa sẵn sàng");
 }
 
+/** Tên hợp đồng con = Form lists → contractNames (link documentCategoryId). Chỉ active. */
+export async function listFormListContractNames(
+  categoryId?: string
+): Promise<ContractNameOption[]> {
+  if (USE_MOCK) {
+    await delay(50);
+    const names = loadFormLists().contractNames.filter(
+      (n) => n.status !== "archived"
+    );
+    if (!categoryId) return names;
+    return names.filter((n) => n.documentCategoryId === categoryId);
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+/** Suy ra lớp cấu hình khi seed cũ thiếu configLayer. */
+export function resolveConfigLayer(
+  cfg: ContractTypeConfigVersion
+): ConfigLayer {
+  if (cfg.configLayer === "parent" || cfg.configLayer === "child") {
+    return cfg.configLayer;
+  }
+  return cfg.contractTypeId === cfg.parentCategoryId ? "parent" : "child";
+}
+
+export function isParentConfig(cfg: ContractTypeConfigVersion): boolean {
+  return resolveConfigLayer(cfg) === "parent";
+}
+
+/** Bản active mới nhất theo khóa contractTypeId (cha hoặc con). */
+export function pickChildLineConfig(
+  versions: ContractTypeConfigVersion[],
+  opts?: { includeArchived?: boolean }
+): ContractTypeConfigVersion | null {
+  if (!versions.length) return null;
+  const sorted = [...versions].sort((a, b) => b.version - a.version);
+  const active = sorted.find((v) => v.lifecycle !== "archived");
+  if (active) return active;
+  return opts?.includeArchived ? sorted[0] : null;
+}
+
+export function findConfigByBusinessKey(
+  contractTypeId: string,
+  opts?: { includeArchived?: boolean }
+): ContractTypeConfigVersion | null {
+  const versions = loadConfigVersions().filter(
+    (c) => c.contractTypeId === contractTypeId
+  );
+  return pickChildLineConfig(versions, opts);
+}
+
+export type MergedContractConfig = {
+  parent: ContractTypeConfigVersion | null;
+  child: ContractTypeConfigVersion | null;
+  /** parent ∪ child — cùng code điều khoản thì child thắng. */
+  clauses: ChecklistClause[];
+  aiTiers: ContractTypeConfigVersion["aiTiers"];
+  requireTemplateMatch: boolean;
+  templateFileName?: string;
+  approvalMatrixId: string | null;
+  parentClauseCount: number;
+  childClauseCount: number;
+  overriddenCodes: string[];
+};
+
 /**
- * Tạo loại hợp đồng cha mới (nhóm chứa nhiều loại con).
+ * Gộp cấu hình loại cha + overlay tên HĐ con (AI runtime dùng kết quả này).
  */
-export async function createParentContractCategory(input: {
-  label: string;
-  description?: string;
-  group?: ContractGroup;
-}): Promise<ContractParentCategory> {
-  const perm = getConfigPermission();
-  if (!perm.canEditDraft) throw new Error("Không có quyền tạo loại hợp đồng");
+export function mergeParentAndChildConfig(
+  parent: ContractTypeConfigVersion | null,
+  child: ContractTypeConfigVersion | null
+): MergedContractConfig {
+  const parentClauses = (parent?.clauses || []).filter((c) => c.active !== false);
+  const childClauses = (child?.clauses || []).filter((c) => c.active !== false);
+  const byCode = new Map<string, ChecklistClause>();
+  const overriddenCodes: string[] = [];
+  for (const c of parentClauses) byCode.set(c.code, c);
+  for (const c of childClauses) {
+    if (byCode.has(c.code)) overriddenCodes.push(c.code);
+    byCode.set(c.code, c);
+  }
+  const clauses = Array.from(byCode.values()).sort(
+    (a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code)
+  );
 
-  const trimmed = input.label.trim();
-  if (!trimmed) throw new Error("Nhập tên loại hợp đồng cha");
-
-  const base = slugifyLabel(trimmed, 28) || "parent";
-  const id = `${base}_${Date.now().toString(36).slice(-4)}`;
-  const group: ContractGroup =
-    input.group || (base.includes("vendor") || base.includes("ncc") ? "vendor" : "framework");
-
-  const parent: ContractParentCategory = {
-    id,
-    label: trimmed,
-    description: input.description?.trim() || undefined,
-    group,
+  const baseAi = parent?.aiTiers || {
+    ruleBasedEnabled: true,
+    semanticEnabled: true,
   };
+  const aiTiers = child
+    ? {
+        ruleBasedEnabled: child.aiTiers.ruleBasedEnabled,
+        semanticEnabled: child.aiTiers.semanticEnabled,
+        notes: [parent?.aiTiers.notes, child.aiTiers.notes]
+          .filter(Boolean)
+          .join(" | "),
+      }
+    : { ...baseAi };
+
+  return {
+    parent,
+    child,
+    clauses,
+    aiTiers,
+    requireTemplateMatch:
+      child?.requireTemplateMatch ?? parent?.requireTemplateMatch ?? false,
+    templateFileName: child?.templateFileName || parent?.templateFileName,
+    approvalMatrixId:
+      child?.approvalMatrixId !== undefined && child?.approvalMatrixId !== null
+        ? child.approvalMatrixId
+        : parent?.approvalMatrixId ?? null,
+    parentClauseCount: parentClauses.length,
+    childClauseCount: childClauses.length,
+    overriddenCodes,
+  };
+}
+
+/** Resolve checklist AI theo Tên hợp đồng (intake.contractNameId). */
+export function getMergedConfigForContractName(
+  contractNameId: string
+): MergedContractConfig {
+  const lists = loadFormLists();
+  const name = lists.contractNames.find((n) => n.id === contractNameId);
+  const parentId = name?.documentCategoryId;
+  const parent = parentId
+    ? findConfigByBusinessKey(parentId)
+    : null;
+  const child = findConfigByBusinessKey(contractNameId);
+  return mergeParentAndChildConfig(parent, child);
+}
+
+function categoryGroup(categoryId: string): ContractGroup {
+  return categoryId === "log" || categoryId === "mro" ? "vendor" : "framework";
+}
+
+/**
+ * Lấy / tạo checklist loại cha (documentCategories.id).
+ * Mọi Tên hợp đồng con thuộc loại này được hưởng khi AI gộp.
+ */
+export async function ensureConfigForParentCategory(
+  categoryId: string
+): Promise<ContractTypeConfigVersion> {
+  const perm = getConfigPermission();
+  if (!perm.canView) throw new Error("Không có quyền xem cấu hình");
+
+  const lists = loadFormLists();
+  const cat = lists.documentCategories.find((c) => c.id === categoryId);
+  if (!cat) {
+    throw new Error(
+      "Loại hợp đồng không có trong Form lists — thêm tại Configurations → Form lists"
+    );
+  }
 
   if (USE_MOCK) {
     await delay();
-    const list = loadParentCategories();
-    if (list.some((p) => p.label.toLowerCase() === trimmed.toLowerCase())) {
-      throw new Error("Đã có loại hợp đồng cha cùng tên");
+    const list = loadConfigVersions();
+    const versions = list.filter((c) => c.contractTypeId === categoryId);
+    const existing = pickChildLineConfig(versions, { includeArchived: true });
+    if (existing && existing.lifecycle !== "archived") {
+      if (!existing.configLayer) {
+        const patched = { ...existing, configLayer: "parent" as const };
+        const idx = list.findIndex((c) => c.id === existing.id);
+        if (idx >= 0) {
+          list[idx] = patched;
+          saveConfigVersions(list);
+        }
+        return patched;
+      }
+      return existing;
     }
-    list.push(parent);
-    saveParentCategories(list);
+    if (existing?.lifecycle === "archived") {
+      throw new Error("Checklist loại cha đã lưu trữ — khôi phục trước khi mở sửa");
+    }
+
+    if (!perm.canEditDraft) {
+      throw new Error("Chưa có checklist loại cha — cần quyền cấu hình để tạo bản đầu");
+    }
+
+    const a = actor();
+    const group = categoryGroup(categoryId);
+    const parent: ContractTypeConfigVersion = {
+      id: `cfg_parent_${categoryId}_v1`,
+      contractTypeId: categoryId,
+      parentCategoryId: categoryId,
+      configLayer: "parent",
+      label: cat.label?.includes(cat.code) ? cat.label : `${cat.label} (${cat.code})`,
+      group,
+      lifecycle: "published",
+      version: 1,
+      requireTemplateMatch: group === "framework",
+      clauses: [],
+      approvalMatrixId: null,
+      aiTiers: {
+        ruleBasedEnabled: true,
+        semanticEnabled: true,
+        notes: `Checklist chung Loại HĐ ${cat.code} — mọi Tên HĐ con kế thừa.`,
+      },
+      createdAt: now(),
+      updatedAt: now(),
+      createdBy: a.name,
+      updatedBy: a.name,
+    };
+    list.unshift(parent);
+    saveConfigVersions(list);
+    appendAudit({
+      configVersionId: parent.id,
+      contractTypeId: parent.contractTypeId,
+      action: "create_draft",
+      note: `Khởi tạo checklist loại cha Form lists: ${cat.label}`,
+    });
     return parent;
   }
   throw new Error("API chưa sẵn sàng");
 }
 
 /**
- * Tạo loại hợp đồng con (line) mới dưới một loại cha.
- * Mỗi line = một contractTypeId riêng (bản v1 trống checklist, sửa trực tiếp).
+ * Lấy / tạo overlay checklist cho một Tên hợp đồng (bổ sung / ghi đè cha).
+ * contractTypeId = contractNames.id; AI gộp với checklist loại cha.
  */
-export async function createChildContractType(
-  parentCategoryId: string,
-  label: string
+export async function ensureConfigForContractName(
+  contractNameId: string
 ): Promise<ContractTypeConfigVersion> {
   const perm = getConfigPermission();
-  if (!perm.canEditDraft) throw new Error("Không có quyền tạo loại con");
+  if (!perm.canView) throw new Error("Không có quyền xem cấu hình");
 
-  const parents = loadParentCategories();
-  const parent = parents.find((p) => p.id === parentCategoryId);
-  if (!parent) throw new Error("Không tìm thấy loại hợp đồng cha");
-
-  const trimmed = label.trim();
-  if (!trimmed) throw new Error("Nhập tên loại hợp đồng con");
-
-  const slug = slugifyLabel(trimmed);
-  const contractTypeId = `${parentCategoryId}_${slug || "child"}_${Date.now()
-    .toString(36)
-    .slice(-4)}`;
-
-  const a = actor();
-  const group: ContractGroup =
-    parent.group || (parentCategoryId === "vendor" ? "vendor" : "framework");
-  const child: ContractTypeConfigVersion = {
-    id: `cfg_${contractTypeId}_v1`,
-    contractTypeId,
-    parentCategoryId,
-    label: trimmed,
-    group,
-    lifecycle: "published",
-    version: 1,
-    requireTemplateMatch: group === "framework",
-    clauses: [],
-    approvalMatrixId: null,
-    aiTiers: {
-      ruleBasedEnabled: true,
-      semanticEnabled: true,
-      notes: `Loại con mới dưới ${parent.label}`,
-    },
-    createdAt: now(),
-    updatedAt: now(),
-    createdBy: a.name,
-    updatedBy: a.name,
-  };
+  const lists = loadFormLists();
+  const name = lists.contractNames.find((n) => n.id === contractNameId);
+  if (!name) {
+    throw new Error(
+      "Tên hợp đồng không có trong Form lists — thêm tại Configurations → Form lists"
+    );
+  }
 
   if (USE_MOCK) {
     await delay();
     const list = loadConfigVersions();
+    const versions = list.filter((c) => c.contractTypeId === contractNameId);
+    const existing = pickChildLineConfig(versions, { includeArchived: true });
+    if (existing && existing.lifecycle !== "archived") {
+      if (!existing.configLayer) {
+        const patched = { ...existing, configLayer: "child" as const };
+        const idx = list.findIndex((c) => c.id === existing.id);
+        if (idx >= 0) {
+          list[idx] = patched;
+          saveConfigVersions(list);
+        }
+        return patched;
+      }
+      return existing;
+    }
+    if (existing?.lifecycle === "archived") {
+      throw new Error("Checklist riêng đã lưu trữ — khôi phục trước khi mở sửa");
+    }
+
+    if (!perm.canEditDraft) {
+      throw new Error("Chưa có checklist riêng — cần quyền cấu hình để tạo bản đầu");
+    }
+
+    const a = actor();
+    const group = categoryGroup(name.documentCategoryId);
+    const child: ContractTypeConfigVersion = {
+      id: `cfg_${contractNameId}_v1`,
+      contractTypeId: contractNameId,
+      parentCategoryId: name.documentCategoryId,
+      configLayer: "child",
+      label: name.label,
+      group,
+      lifecycle: "published",
+      version: 1,
+      requireTemplateMatch: group === "framework",
+      clauses: [],
+      approvalMatrixId: null,
+      aiTiers: {
+        ruleBasedEnabled: true,
+        semanticEnabled: true,
+        notes: `Overlay riêng Tên HĐ: ${name.label} — gộp với checklist loại cha ${name.documentCategoryId}.`,
+      },
+      createdAt: now(),
+      updatedAt: now(),
+      createdBy: a.name,
+      updatedBy: a.name,
+    };
     list.unshift(child);
     saveConfigVersions(list);
     appendAudit({
       configVersionId: child.id,
       contractTypeId: child.contractTypeId,
       action: "create_draft",
-      note: `Thêm loại con dưới ${parent.label}: ${trimmed}`,
+      note: `Khởi tạo overlay checklist con: ${name.label}`,
     });
     return child;
   }
   throw new Error("API chưa sẵn sàng");
 }
 
-/** Một line hiển thị trên list: bản active mới nhất (không archive). */
-export function pickChildLineConfig(
-  versions: ContractTypeConfigVersion[]
-): ContractTypeConfigVersion | null {
-  if (!versions.length) return null;
-  const sorted = [...versions].sort((a, b) => b.version - a.version);
-  return (
-    sorted.find((v) => v.lifecycle !== "archived") ||
-    sorted[0]
+/**
+ * @deprecated Loại hợp đồng cha lấy từ Form lists (documentCategories).
+ */
+export async function createParentContractCategory(_input: {
+  label: string;
+  description?: string;
+  group?: ContractGroup;
+}): Promise<ContractParentCategory> {
+  throw new Error(
+    "Không tạo loại cha tại đây — thêm Loại hợp đồng tại Configurations → Form lists."
   );
+}
+
+/**
+ * @deprecated Thêm tên tại Form lists; cấu hình chính ở loại cha, overlay ở tên con.
+ */
+export async function createChildContractType(
+  _parentCategoryId: string,
+  _label: string
+): Promise<ContractTypeConfigVersion> {
+  throw new Error(
+    "Không tạo loại HĐ tại đây — thêm Tên hợp đồng tại Configurations → Form lists, rồi cấu hình loại cha / overlay con."
+  );
+}
+
+/**
+ * Số HĐ đang tham chiếu Tên hợp đồng (contractNames.id)
+ * hoặc contractTypeId legacy trên review.
+ */
+export function countReviewsUsingContractType(contractTypeId: string): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    return loadReviews().filter(
+      (r) =>
+        r.intake?.contractNameId === contractTypeId ||
+        r.contractTypeId === contractTypeId
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Số HĐ thuộc loại cha (qua documentCategoryId hoặc tên con). */
+export function countReviewsUsingParentCategory(categoryId: string): number {
+  if (typeof window === "undefined") return 0;
+  try {
+    const childIds = new Set(
+      loadFormLists()
+        .contractNames.filter((n) => n.documentCategoryId === categoryId)
+        .map((n) => n.id)
+    );
+    return loadReviews().filter(
+      (r) =>
+        r.intake?.documentCategoryId === categoryId ||
+        (!!r.intake?.contractNameId && childIds.has(r.intake.contractNameId))
+    ).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** Đồng bộ status Form lists → Tên hợp đồng (ẩn khỏi form tạo khi archived). */
+function syncFormListContractNameStatus(
+  contractNameId: string,
+  status: "active" | "archived"
+) {
+  const lists = loadFormLists();
+  const idx = lists.contractNames.findIndex((t) => t.id === contractNameId);
+  if (idx < 0) return;
+  lists.contractNames[idx] = {
+    ...lists.contractNames[idx],
+    status,
+  };
+  saveFormLists(lists);
+}
+
+async function archiveConfigByKey(
+  contractTypeId: string,
+  note: string
+): Promise<void> {
+  const list = loadConfigVersions();
+  const matched = list.filter((c) => c.contractTypeId === contractTypeId);
+  const a = actor();
+  if (matched.some((c) => c.lifecycle !== "archived")) {
+    const next = list.map((c) =>
+      c.contractTypeId === contractTypeId && c.lifecycle !== "archived"
+        ? {
+            ...c,
+            lifecycle: "archived" as const,
+            updatedAt: now(),
+            updatedBy: a.name,
+          }
+        : c
+    );
+    saveConfigVersions(next);
+  }
+  appendAudit({
+    configVersionId: matched[0]?.id || `cfg_${contractTypeId}`,
+    contractTypeId,
+    action: "archive",
+    note,
+  });
+}
+
+/**
+ * Lưu trữ Tên hợp đồng (Form lists) + overlay checklist (nếu có).
+ * Ẩn khỏi form tạo HĐ. Không ảnh hưởng checklist loại cha.
+ */
+export async function archiveChildContractType(
+  contractTypeId: string
+): Promise<void> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền lưu trữ loại hợp đồng");
+
+  if (USE_MOCK) {
+    await delay();
+    const name = loadFormLists().contractNames.find(
+      (n) => n.id === contractTypeId
+    );
+    if (!name) {
+      throw new Error("Không tìm thấy Tên hợp đồng trong Form lists");
+    }
+    if (name.status === "archived") {
+      throw new Error("Tên hợp đồng đã được lưu trữ");
+    }
+
+    const matched = loadConfigVersions().filter(
+      (c) => c.contractTypeId === contractTypeId
+    );
+    const usage = countReviewsUsingContractType(contractTypeId);
+    if (matched.some((c) => c.lifecycle !== "archived")) {
+      await archiveConfigByKey(
+        contractTypeId,
+        usage > 0
+          ? `Lưu trữ overlay Tên HĐ (đang dùng bởi ${usage} HĐ)`
+          : `Lưu trữ overlay Tên HĐ Form lists: ${name.label}`
+      );
+    } else {
+      appendAudit({
+        configVersionId: matched[0]?.id || `cfg_${contractTypeId}`,
+        contractTypeId,
+        action: "archive",
+        note: `Lưu trữ Tên hợp đồng Form lists (không có overlay): ${name.label}`,
+      });
+    }
+    syncFormListContractNameStatus(contractTypeId, "archived");
+    return;
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+/** Lưu trữ checklist loại cha — các con vẫn hiện; AI chỉ còn overlay con (nếu có). */
+export async function archiveParentContractConfig(
+  categoryId: string
+): Promise<void> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền lưu trữ cấu hình loại cha");
+
+  if (USE_MOCK) {
+    await delay();
+    const cat = loadFormLists().documentCategories.find((c) => c.id === categoryId);
+    if (!cat) throw new Error("Không tìm thấy Loại hợp đồng trong Form lists");
+    const matched = loadConfigVersions().filter(
+      (c) => c.contractTypeId === categoryId
+    );
+    if (!matched.some((c) => c.lifecycle !== "archived")) {
+      throw new Error("Checklist loại cha chưa có hoặc đã lưu trữ");
+    }
+    const usage = countReviewsUsingParentCategory(categoryId);
+    await archiveConfigByKey(
+      categoryId,
+      usage > 0
+        ? `Lưu trữ checklist loại cha ${cat.code} (${usage} HĐ thuộc loại — con vẫn kế thừa khi khôi phục)`
+        : `Lưu trữ checklist loại cha: ${cat.label}`
+    );
+    return;
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+/**
+ * Xóa overlay checklist của Tên hợp đồng — chỉ khi chưa có HĐ nào dùng.
+ * Không xóa dòng Form lists; không xóa checklist loại cha.
+ */
+export async function deleteChildContractType(
+  contractTypeId: string
+): Promise<void> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền xóa loại hợp đồng");
+
+  const usage = countReviewsUsingContractType(contractTypeId);
+  if (usage > 0) {
+    throw new Error(
+      `Tên hợp đồng đang được dùng bởi ${usage} HĐ — chỉ được Lưu trữ, không xóa checklist riêng.`
+    );
+  }
+
+  if (USE_MOCK) {
+    await delay();
+    const list = loadConfigVersions();
+    const matched = list.filter((c) => c.contractTypeId === contractTypeId);
+    if (!matched.length) throw new Error("Chưa có checklist riêng để xóa");
+    saveConfigVersions(
+      list.filter((c) => c.contractTypeId !== contractTypeId)
+    );
+    syncFormListContractNameStatus(contractTypeId, "active");
+    appendAudit({
+      configVersionId: matched[0].id,
+      contractTypeId,
+      action: "delete",
+      note: `Xóa overlay checklist: ${matched[0].label} (vẫn kế thừa loại cha)`,
+    });
+    return;
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+/** Xóa checklist loại cha — chặn nếu có HĐ thuộc loại. */
+export async function deleteParentContractConfig(
+  categoryId: string
+): Promise<void> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền xóa cấu hình loại cha");
+
+  const usage = countReviewsUsingParentCategory(categoryId);
+  if (usage > 0) {
+    throw new Error(
+      `Loại HĐ đang có ${usage} HĐ — chỉ được Lưu trữ checklist loại cha, không xóa.`
+    );
+  }
+
+  if (USE_MOCK) {
+    await delay();
+    const list = loadConfigVersions();
+    const matched = list.filter((c) => c.contractTypeId === categoryId);
+    if (!matched.length) throw new Error("Chưa có checklist loại cha để xóa");
+    saveConfigVersions(list.filter((c) => c.contractTypeId !== categoryId));
+    appendAudit({
+      configVersionId: matched[0].id,
+      contractTypeId: categoryId,
+      action: "delete",
+      note: `Xóa checklist loại cha: ${matched[0].label}`,
+    });
+    return;
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+/** Khôi phục Tên hợp đồng đã lưu trữ → overlay + hiện lại trên form tạo HĐ. */
+export async function restoreChildContractType(
+  contractTypeId: string
+): Promise<void> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền khôi phục loại hợp đồng");
+
+  if (USE_MOCK) {
+    await delay();
+    const list = loadConfigVersions();
+    const matched = list.filter((c) => c.contractTypeId === contractTypeId);
+    const a = actor();
+
+    if (matched.length) {
+      const archived = matched.filter((c) => c.lifecycle === "archived");
+      if (archived.length) {
+        const latest = [...archived].sort((x, y) => y.version - x.version)[0];
+        const next = list.map((c) =>
+          c.id === latest.id
+            ? {
+                ...c,
+                lifecycle: "published" as const,
+                updatedAt: now(),
+                updatedBy: a.name,
+              }
+            : c
+        );
+        saveConfigVersions(next);
+        appendAudit({
+          configVersionId: latest.id,
+          contractTypeId,
+          action: "restore",
+          note: `Khôi phục overlay checklist v${latest.version}`,
+        });
+      }
+    }
+    syncFormListContractNameStatus(contractTypeId, "active");
+    return;
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+/** Khôi phục checklist loại cha đã lưu trữ. */
+export async function restoreParentContractConfig(
+  categoryId: string
+): Promise<void> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền khôi phục cấu hình loại cha");
+
+  if (USE_MOCK) {
+    await delay();
+    const list = loadConfigVersions();
+    const matched = list.filter((c) => c.contractTypeId === categoryId);
+    const archived = matched.filter((c) => c.lifecycle === "archived");
+    if (!archived.length) throw new Error("Không có checklist loại cha đã lưu trữ");
+    const a = actor();
+    const latest = [...archived].sort((x, y) => y.version - x.version)[0];
+    const next = list.map((c) =>
+      c.id === latest.id
+        ? {
+            ...c,
+            lifecycle: "published" as const,
+            updatedAt: now(),
+            updatedBy: a.name,
+          }
+        : c
+    );
+    saveConfigVersions(next);
+    appendAudit({
+      configVersionId: latest.id,
+      contractTypeId: categoryId,
+      action: "restore",
+      note: `Khôi phục checklist loại cha v${latest.version}`,
+    });
+    return;
+  }
+  throw new Error("API chưa sẵn sàng");
 }
 
 /** Export checklist CSV (Excel-friendly). */
