@@ -35,7 +35,7 @@
 | 11c | Track Changes của Legal (tô đen → popup nhập nội dung mới, chỉ vùng mở, luôn kèm Reject; diff tách lớp với diff AI) | ❌ Chưa có | Không có UI/logic nào cho Legal đề xuất sửa |
 | 12 | Interface Econtract: đẩy trình ký (API một chiều) + nhận file đã ký về qua **sFTP**/callback | 🟡 Mock | `legalDecide` approve → `setTimeout` chuyển `signed`. Chưa có spec API/sFTP thật |
 | 13 | Audit / Version / RBAC | ✅ Demo | Version history + snapshot xem lại; audit config tách audit HĐ; RBAC 4 role (`roles.ts`). **Lưu ý:** filter "Purchasing chỉ thấy HĐ của mình" là no-op (`ownerName.includes(...) \|\| true` trong `review-service.listReviews`) |
-| 14 | System Prompt (Git): 4 stage + injection guard | ✅ Demo | `prompts/` đủ 4 stage + `_shared/injection_guard.md`; CI validate (`scripts/validate-prompts.js`, GitHub Action). **Nhưng prompts chưa được nối vào luồng AI nào** (chat/insight không dùng prompt) |
+| 14 | System Prompt (Git): 3 stage + injection guard | ✅ Demo | `prompts/` 3 stage (`checklist_review` · `chat_edit` · `ai_summary_fairness`) + `_shared/injection_guard.md`; CI validate (`scripts/validate-prompts.js`, GitHub Action). **Nhưng prompts chưa được nối vào luồng AI nào** (chat/insight không dùng prompt) |
 | 15 | Export + Disclaimer: `.docx` giữ format, disclaimer trên UI | 🟡 Mock | Download trả về file sample hoặc export text tạm. Chưa có pipeline ghi OOXML giữ format. Disclaimer đã có trên UI |
 | 16 | Auth / phân quyền đăng nhập | 🟡 Mock | `login/page.tsx` có form tài khoản/mật khẩu (demo `admin`/`admin`, validate mock) + login nhanh theo role; chưa nối SSO/credential thật (D2) |
 | 17 | Fallback rule-based khi LLM sự cố | ❌ Chưa có | Không có code nào thể hiện cơ chế fallback |
@@ -68,6 +68,6 @@
 
 - Phân tích OOXML vùng khoá/vùng mở: `docx-content-controls.ts` (port sang backend được).
 - Validate reupload: `reupload-validation-node.ts` đã chạy được phía server (Node).
-- Bộ prompt 4 stage + injection guard + CI validate.
+- Bộ prompt 3 stage + injection guard + CI validate.
 - Data model `types.ts` — làm cơ sở cho API contract.
 - Toàn bộ UI/UX flow — làm prototype thống nhất yêu cầu với stakeholder.

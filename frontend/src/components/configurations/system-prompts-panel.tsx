@@ -21,7 +21,6 @@ const STAGE_LABELS: Record<PipelineStage, string> = {
   checklist_review: "Checklist review (first-pass)",
   chat_edit: "Chat edit",
   ai_summary_fairness: "AI summary & fairness",
-  field_validation: "Field validation",
 };
 
 const STAGE_META: Record<
@@ -44,11 +43,6 @@ const STAGE_META: Record<
       "Danh sách phát hiện đã có sẵn (đầu ra của stage 1/2) + Ma trận phê duyệt",
     output: "Đoạn tóm tắt ngôn ngữ tự nhiên + Fairness Score",
     when: "Mỗi lần field được lưu (Mục 4.4)",
-  },
-  field_validation: {
-    input: "Chỉ 1 field (giá trị cũ/mới) + Ma trận phê duyệt",
-    output: "Kết quả cảnh báo cho riêng field đó",
-    when: "Ngay khi user sửa 1 field",
   },
 };
 

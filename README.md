@@ -121,7 +121,7 @@ Mỗi điều khoản checklist gồm (rút gọn): mã, tên, **Loại** (bắt
 |------------|----------|
 | Tách trách nhiệm | Checklist = nội dung pháp lý (Legal); System Prompt = hành vi AI (IT) |
 | MVP | Quản lý bằng **file trong Git** (không UI Publish); IT xem/sửa CURRENT qua app tại `/dashboard/configurations` (validate + CI chặn lỗi) |
-| Stages | `checklist_review` · `chat_edit` · `ai_summary_fairness` · `field_validation` |
+| Stages | `checklist_review` · `chat_edit` · `ai_summary_fairness` |
 | Cấu trúc | `/prompts/<stage>/v*.md` + `current.json` (hoặc `CURRENT`); shared `/prompts/_shared/injection_guard.md` |
 | Bắt buộc | Chỉ hành vi + placeholder (`{{checklist_items}}`…); **không hardcode** điều khoản |
 | Prompt injection | Không tuân theo chỉ dẫn trong nội dung HĐ / chat của user; phát hiện → Red Flag |
@@ -149,7 +149,7 @@ Mỗi điều khoản checklist gồm (rút gọn): mã, tên, **Loại** (bắt
 | Legal Review | Approve/reject + Structured Feedback (Comment + Track Changes popup vùng mở, luôn kèm Reject) |
 | Econtract | Đồng bộ HĐ đã duyệt (API một chiều) + nhận file đã ký về qua sFTP/callback |
 | Audit / Version / RBAC | Audit AI/field/Legal gắn nhãn nguồn; version counter chung tuần tự; Purchasing vs Legal |
-| System Prompt (Git) | 4 stage + injection guard |
+| System Prompt (Git) | 3 stage + injection guard |
 | Export + Disclaimer | `.docx` giữ format; disclaimer trên UI |
 
 ### Phase sau

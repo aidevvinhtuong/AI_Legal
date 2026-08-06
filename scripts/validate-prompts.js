@@ -11,7 +11,6 @@ const STAGES = [
   "checklist_review",
   "chat_edit",
   "ai_summary_fairness",
-  "field_validation",
 ];
 
 const STAGE_PLACEHOLDERS = {
@@ -23,13 +22,6 @@ const STAGE_PLACEHOLDERS = {
     "current_document_state",
   ],
   ai_summary_fairness: ["contract_type", "findings", "approval_matrix_context"],
-  field_validation: [
-    "contract_type",
-    "field_name",
-    "old_value",
-    "new_value",
-    "approval_matrix_context",
-  ],
 };
 
 const HARDCODED_PATTERNS = [
