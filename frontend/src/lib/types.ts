@@ -27,6 +27,8 @@ export type ReviewStatus =
   | "awaiting_markers"
   | "pending_manager"
   | "pending_legal"
+  /** Legal đã duyệt — chờ người tạo kéo-thả vị trí chữ ký rồi đẩy eContract. */
+  | "pending_markers"
   | "rejected"
   | "approved"
   | "syncing_econtract"
@@ -48,6 +50,34 @@ export type EcontractSignType =
   | "sign_img"
   | "sign_fca.passcode"
   | "sign_ekyc";
+
+/** Kênh gửi thông báo FPT.eContract (`notifyTypes` trong API). */
+export type EcontractNotifyType = "email_econtract" | "sms_econtract";
+
+/**
+ * Vai trò trên UI wizard (ánh xạ eContract):
+ * - coordinator / reviewer / cc: không marker (API role reviewer)
+ * - signer / clerk (văn thư): có marker (API role signer)
+ */
+export type EcontractUiRole =
+  | "coordinator"
+  | "reviewer"
+  | "signer"
+  | "clerk"
+  | "cc";
+
+/** Kết quả đẩy FPT.eContract (lưu trên ticket). */
+export interface EcontractPushResult {
+  envelopeId?: string;
+  envStatus?: string;
+  code?: string | number;
+  message?: string;
+  urlIndividual?: string;
+  fileMode?: "pdf" | "docx";
+  pushedAt?: string;
+  raw?: unknown;
+  error?: string;
+}
 
 /** Tài khoản hệ thống (IT quản trị). */
 export interface AppUser {
@@ -163,13 +193,27 @@ export interface SignRecipient {
   orgName?: string;
   /** Bên thuộc tổ chức mình (Công ty) hay đối tác */
   isMyOrg?: boolean;
+  /**
+   * Loại bên đối tác (bắt buộc chọn trên UI):
+   * organization = Tổ chức · individual = Cá nhân.
+   * Bên mua luôn là organization.
+   */
+  partyKind?: "organization" | "individual";
   /** Thứ tự ký trong luồng */
   order?: number;
   /** Email nhận thông báo ký — eContract bắt buộc với recipient */
   email?: string;
   phone?: string;
-  /** Vai trò trên eContract: signer có marker, reviewer không marker */
-  ecRole?: "signer" | "reviewer";
+  /**
+   * Kênh thông báo eContract — mặc định cả email + SMS.
+   * UI: multi-select «Gửi bằng email/SMS FPT.eContract».
+   */
+  notifyTypes?: EcontractNotifyType[];
+  /**
+   * Vai trò UI wizard. Tương thích cũ: `"signer" | "reviewer"`.
+   * clerk = Văn thư (cần marker); coordinator/cc không marker.
+   */
+  ecRole?: EcontractUiRole;
   /** Hình thức ký — quyết định loại marker (is/ds) */
   signType?: EcontractSignType;
   /**
@@ -184,8 +228,20 @@ export interface SignRecipient {
     type: MarkerType;
     /** h: chiều cao ô ký (chiều rộng = khoảng cách #...#) */
     height: number;
+    /** Chiều rộng ô ký (px UI / khoảng trắng giữa #…#) — mặc định 164. */
+    width?: number;
+    /** Mặc định | Lớn (UI thiết kế). */
+    sizePreset?: "default" | "large";
     positionLabel: string;
+    /** Trang tài liệu (1-based) — gán kéo-thả. */
+    page?: number;
+    /** Tọa độ ngang % trên trang (0–100). */
+    xPct?: number;
+    /** Tọa độ dọc % trên trang (0–100). */
+    yPct?: number;
   };
+  /** Nhãn bậc ma trận ký nếu recipient sinh từ Signing Flow Matrix. */
+  signingMatrixBandLabel?: string;
 }
 
 export interface StructuredFeedbackItem {
@@ -321,4 +377,6 @@ export interface ContractReview {
   disclaimerAcknowledged: boolean;
   /** Thông tin tài liệu từ form tạo mới */
   intake?: DocumentIntakeMeta;
+  /** Kết quả tích hợp FPT.eContract gần nhất */
+  econtract?: EcontractPushResult;
 }

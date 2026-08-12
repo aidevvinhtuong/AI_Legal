@@ -9,13 +9,17 @@ import {
   type ContractParentCategory,
   type ContractTypeConfigVersion,
   type ApprovalMatrixConfig,
+  type SigningAuthorityRule,
+  type SigningSlotRole,
 } from "@/lib/config-types";
 import {
   loadConfigAudit,
   loadConfigVersions,
   loadMatrices,
+  loadSigningRules,
   saveConfigAudit,
   saveConfigVersions,
+  saveSigningRules as persistSigningRules,
 } from "@/lib/config-mock";
 import {
   loadFormLists,
@@ -24,7 +28,20 @@ import {
 } from "@/lib/form-lists-store";
 import { loadReviews } from "@/lib/mock-data";
 import { getSession } from "@/lib/review-service";
-import type { ContractGroup, DocumentCategory, UserRole } from "@/lib/types";
+import type {
+  ContractGroup,
+  DocumentCategory,
+  EcontractSignType,
+  MarkerType,
+  SignRecipient,
+  UserRole,
+} from "@/lib/types";
+
+function markerTypeForSignType(signType: EcontractSignType): MarkerType | null {
+  if (signType === "review") return null;
+  if (signType === "sign_img") return "is";
+  return "ds";
+}
 
 function delay(ms = 250) {
   return new Promise((r) => setTimeout(r, ms));
@@ -1060,6 +1077,246 @@ function parseCsvLine(line: string): string[] {
   }
   result.push(cur);
   return result;
+}
+
+/** ——— Bảng phân quyền ký eContract (Công ty × Loại HĐ × min/max × quyền × user) ——— */
+
+export async function listSigningRules(): Promise<SigningAuthorityRule[]> {
+  if (USE_MOCK) {
+    await delay(80);
+    return loadSigningRules();
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+function parseContractValueVnd(raw: string | number | null | undefined): number {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (raw == null) return NaN;
+  const digits = String(raw).replace(/[^\d]/g, "");
+  if (!digits) return NaN;
+  return Number(digits);
+}
+
+/** Validate toàn bộ bảng quy tắc ký. */
+export function validateSigningRules(rules: SigningAuthorityRule[]): string[] {
+  const errors: string[] = [];
+  if (!rules.length) {
+    errors.push("Cần ít nhất một dòng phân quyền ký");
+    return errors;
+  }
+  rules.forEach((r, idx) => {
+    const row = `Dòng ${idx + 1}`;
+    if (!r.businessEntityIds?.length) {
+      errors.push(`${row}: chọn ít nhất một Công ty`);
+    }
+    if (!r.documentCategoryId?.trim()) {
+      errors.push(`${row}: chọn Loại hợp đồng`);
+    }
+    if (!(r.minValue >= 0) || Number.isNaN(r.minValue)) {
+      errors.push(`${row}: Giá trị min không hợp lệ`);
+    }
+    if (r.maxValue != null) {
+      if (!(r.maxValue >= 0) || Number.isNaN(r.maxValue)) {
+        errors.push(`${row}: Giá trị max không hợp lệ`);
+      } else if (r.maxValue < r.minValue) {
+        errors.push(`${row}: Giá trị max phải ≥ min`);
+      }
+    }
+    if (r.ecRole !== "reviewer" && r.ecRole !== "signer") {
+      errors.push(`${row}: chọn quyền Xem xét hoặc Ký chính`);
+    }
+    if (!r.userId?.trim()) {
+      errors.push(`${row}: chọn người từ user list`);
+    }
+    if (!r.personalName?.trim() || !r.email?.includes("@")) {
+      errors.push(`${row}: user thiếu họ tên / email`);
+    }
+    if (r.ecRole === "signer" && (!r.signType || r.signType === "review")) {
+      errors.push(`${row}: Ký chính cần hình thức ký hợp lệ`);
+    }
+  });
+  return errors;
+}
+
+export async function saveSigningRules(
+  rules: SigningAuthorityRule[]
+): Promise<SigningAuthorityRule[]> {
+  const perm = getConfigPermission();
+  if (!perm.canEditDraft) throw new Error("Không có quyền sửa cấu hình");
+
+  const errors = validateSigningRules(rules);
+  if (errors.length) throw new Error(errors[0]);
+
+  if (USE_MOCK) {
+    await delay();
+    const a = actor();
+    const next = rules.map((r, i) => ({
+      ...r,
+      order: r.order || i + 1,
+      signType:
+        r.ecRole === "reviewer"
+          ? ("review" as const)
+          : r.signType && r.signType !== "review"
+            ? r.signType
+            : ("sign_fca.passcode" as const),
+    }));
+    persistSigningRules(next);
+    appendAudit({
+      configVersionId: "signing_rules",
+      contractTypeId: "signing_rules",
+      action: "save_signing_matrix",
+      note: `Lưu bảng phân quyền ký ${next.length} dòng (bởi ${a.name})`,
+    });
+    return next;
+  }
+  throw new Error("API chưa sẵn sàng");
+}
+
+export type ResolvedSigningFlow = {
+  rules: SigningAuthorityRule[];
+  bandLabel: string;
+  /** Recipients phía công ty (isMyOrg) — chưa merge với đối tác. */
+  companyRecipients: SignRecipient[];
+};
+
+function ruleToRecipient(
+  rule: SigningAuthorityRule,
+  index: number,
+  bandLabel: string,
+  orgName: string
+): SignRecipient {
+  const isReviewer = rule.ecRole === "reviewer";
+  const signType = isReviewer
+    ? "review"
+    : rule.signType || "sign_fca.passcode";
+  const mt = markerTypeForSignType(signType);
+  const markerType: MarkerType = mt || "ds";
+  const seq = String(index + 1).padStart(3, "0");
+  return {
+    id: `p_001_r_${seq}`,
+    name: rule.personalName,
+    role: "company",
+    partyId: "p_001",
+    orgName,
+    isMyOrg: true,
+    order: rule.order || index + 1,
+    email: rule.email,
+    phone: rule.telephoneNumber || "",
+    ecRole: isReviewer ? "reviewer" : "signer",
+    signType,
+    markerType,
+    notifyTypes: ["email_econtract", "sms_econtract"],
+    signingMatrixBandLabel: bandLabel,
+  };
+}
+
+function ruleMatchesValue(rule: SigningAuthorityRule, value: number): boolean {
+  if (value < rule.minValue) return false;
+  if (rule.maxValue != null && value > rule.maxValue) return false;
+  return true;
+}
+
+/**
+ * Resolve bảng quy tắc → recipients phía công ty.
+ * Khớp: Công ty (nếu có) + Loại HĐ + giá trị trong [min, max].
+ */
+export function resolveSigningRecipients(
+  documentCategoryId: string,
+  contractValue: string | number,
+  orgName = "Công ty SGVN",
+  businessEntityId?: string | null
+): ResolvedSigningFlow {
+  const value = parseContractValueVnd(contractValue);
+  if (!Number.isFinite(value)) {
+    throw new Error(
+      "Giá trị hợp đồng không hợp lệ — không chọn được dòng ma trận ký"
+    );
+  }
+
+  const matched = loadSigningRules()
+    .filter((r) => r.documentCategoryId === documentCategoryId)
+    .filter((r) => {
+      if (!businessEntityId) return true;
+      return r.businessEntityIds.includes(businessEntityId);
+    })
+    .filter((r) => ruleMatchesValue(r, value))
+    .sort((a, b) => {
+      const roleRank = (x: SigningSlotRole) => (x === "reviewer" ? 0 : 1);
+      return roleRank(a.ecRole) - roleRank(b.ecRole) || a.order - b.order;
+    });
+
+  if (!matched.length) {
+    throw new Error(
+      "Chưa có dòng phân quyền ký khớp Công ty / Loại HĐ / Giá trị — vào Configurations → Phân quyền ký"
+    );
+  }
+
+  const hasSigner = matched.some((r) => r.ecRole === "signer");
+  if (!hasSigner) {
+    throw new Error(
+      "Ma trận khớp điều kiện nhưng thiếu người Ký chính (signer)"
+    );
+  }
+
+  const bandLabel =
+    matched[0].maxValue == null
+      ? `≥ ${matched[0].minValue.toLocaleString("vi-VN")}`
+      : `${matched[0].minValue.toLocaleString("vi-VN")} – ${matched[0].maxValue.toLocaleString("vi-VN")}`;
+
+  // Deduplicate same user+role
+  const seen = new Set<string>();
+  const unique = matched.filter((r) => {
+    const key = `${r.ecRole}:${r.userId || r.email}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const companyRecipients = unique.map((r, i) =>
+    ruleToRecipient(r, i, bandLabel, orgName)
+  );
+
+  return { rules: unique, bandLabel, companyRecipients };
+}
+
+/** Kiểm tra review đã có quy tắc ký khớp (trước đẩy eContract). */
+export function assertSigningMatrixReady(review: {
+  intake?: {
+    documentCategoryId?: string;
+    contractValue?: string;
+    businessEntityId?: string;
+  } | null;
+}): void {
+  const parentId = review.intake?.documentCategoryId;
+  const value = review.intake?.contractValue;
+  if (!parentId) {
+    throw new Error("Thiếu Loại HĐ — không đẩy được eContract");
+  }
+  if (value == null || String(value).trim() === "") {
+    throw new Error("Thiếu Giá trị HĐ — không đẩy được eContract");
+  }
+  resolveSigningRecipients(
+    parentId,
+    value,
+    "Công ty SGVN",
+    review.intake?.businessEntityId
+  );
+}
+
+/**
+ * Merge recipients từ ma trận (isMyOrg) vào list hiện tại — giữ đối tác / marker st.
+ */
+export function mergeCompanyRecipientsFromMatrix(
+  existing: SignRecipient[],
+  companyRecipients: SignRecipient[]
+): SignRecipient[] {
+  const keep = existing.filter((r) => {
+    if (r.markerType === "st") return true;
+    const isCompany =
+      r.isMyOrg === true || (r.isMyOrg == null && r.role === "company");
+    return !isCompany;
+  });
+  return [...companyRecipients, ...keep];
 }
 
 export function lifecycleBadgeVariant(

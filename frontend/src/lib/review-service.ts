@@ -82,9 +82,39 @@ export function setSession(user: UserSession) {
   localStorage.setItem("user", JSON.stringify(user));
 }
 
+/** Lưu / lấy TK+MK đăng nhập AI Legal để gọi FPT.eContract login (username/password API). */
+const ECONTRACT_LOGIN_KEY = "econtract_user_login";
+
+export function setEcontractUserLogin(username: string, password: string) {
+  if (typeof window === "undefined") return;
+  sessionStorage.setItem(
+    ECONTRACT_LOGIN_KEY,
+    JSON.stringify({ username, password })
+  );
+}
+
+export function getEcontractUserLogin(): {
+  username: string;
+  password: string;
+} | null {
+  if (typeof window === "undefined") return null;
+  const raw = sessionStorage.getItem(ECONTRACT_LOGIN_KEY);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { username?: string; password?: string };
+    if (!parsed.username || !parsed.password) return null;
+    return { username: parsed.username, password: parsed.password };
+  } catch {
+    return null;
+  }
+}
+
 export function clearSession() {
   localStorage.removeItem("token");
   localStorage.removeItem("user");
+  if (typeof window !== "undefined") {
+    sessionStorage.removeItem(ECONTRACT_LOGIN_KEY);
+  }
 }
 
 export async function loginAs(role: UserRole): Promise<UserSession> {
@@ -92,6 +122,11 @@ export async function loginAs(role: UserRole): Promise<UserSession> {
     await delay(200);
     const user = MOCK_USERS[role];
     setSession(user);
+    const { getUserByUsername } = await import("@/lib/user-store");
+    const account = getUserByUsername(user.username);
+    if (account) {
+      setEcontractUserLogin(account.username, account.password);
+    }
     return user;
   }
   const user = (await api.post("/api/auth/login", { role })) as UserSession;
@@ -115,6 +150,7 @@ export async function loginWithCredentials(
     }
     const session = toSession(account);
     setSession(session);
+    setEcontractUserLogin(account.username, password);
     return session;
   }
   const user = (await api.post("/api/auth/login", {
@@ -122,6 +158,7 @@ export async function loginWithCredentials(
     password,
   })) as UserSession;
   setSession(user);
+  setEcontractUserLogin(username, password);
   return user;
 }
 
@@ -134,6 +171,7 @@ export async function changeOwnPassword(
     await delay(200);
     const { changePassword } = await import("@/lib/user-store");
     changePassword(username, oldPassword, newPassword);
+    setEcontractUserLogin(username, newPassword);
     return;
   }
   await api.post("/api/auth/change-password", {
@@ -141,6 +179,7 @@ export async function changeOwnPassword(
     oldPassword,
     newPassword,
   });
+  setEcontractUserLogin(username, newPassword);
 }
 
 /** Options cho field "Loại giá trị hợp đồng (Contract value type)" — Form lists cùng tên. */
@@ -380,6 +419,84 @@ export async function createReview(input: {
   return api.post("/api/reviews", form);
 }
 
+/**
+ * Review nhanh: file .docx + Loại hợp đồng + Tên hợp đồng (bắt buộc).
+ * Các trường intake khác điền mặc định từ cấu hình.
+ */
+export async function createQuickReview(input: {
+  file: File;
+  documentCategoryId: string;
+  contractNameId: string;
+  /** Loại giá trị HĐ cho checklist — mặc định loại đầu có checklist */
+  contractTypeId?: string;
+  prompt?: string;
+}): Promise<ContractReview> {
+  const file = input.file;
+  if (!file?.name.toLowerCase().endsWith(".docx")) {
+    throw new Error("Chỉ nhận file .docx");
+  }
+  if (!input.documentCategoryId?.trim()) {
+    throw new Error("Chọn Loại hợp đồng");
+  }
+  if (!input.contractNameId?.trim()) {
+    throw new Error("Chọn Tên hợp đồng");
+  }
+
+  const [categories, types, entities, bases, names] = await Promise.all([
+    listDocumentCategories(),
+    listContractTypes(),
+    listBusinessEntities(),
+    listContractBases(),
+    listContractNames(),
+  ]);
+
+  const category = categories.find((c) => c.id === input.documentCategoryId);
+  const nameOpt = names.find((n) => n.id === input.contractNameId);
+  if (!category) throw new Error("Loại hợp đồng không hợp lệ");
+  if (!nameOpt || nameOpt.documentCategoryId !== category.id) {
+    throw new Error("Tên hợp đồng không hợp lệ với Loại hợp đồng đã chọn");
+  }
+
+  const entity = entities[0];
+  const base = bases[0];
+  const type =
+    types.find((t) => t.id === input.contractTypeId) ||
+    types.find((t) => t.hasChecklist && t.status === "published") ||
+    types[0];
+  if (!entity || !type) {
+    throw new Error("Thiếu cấu hình công ty / loại giá trị HĐ");
+  }
+
+  const title =
+    nameOpt.label || file.name.replace(/\.docx$/i, "");
+  const today = new Date().toISOString().slice(0, 10);
+
+  const intake: DocumentIntakeMeta = {
+    documentCategoryId: category.id,
+    documentCategoryLabel: category.label,
+    documentName: title,
+    documentNumber: "",
+    signingDate: today,
+    contractNameId: nameOpt.id,
+    contractNameLabel: nameOpt.label,
+    businessEntityId: entity.id,
+    businessEntityLabel: entity.label,
+    contractBaseId: base?.id,
+    contractBaseLabel: base?.label,
+    hasDiscount: "no",
+    discountDetails: "",
+    contractValue: "0",
+  };
+
+  return createReview({
+    contractTypeId: type.id,
+    title,
+    prompt: input.prompt || "",
+    files: [file],
+    intake,
+  });
+}
+
 export async function advanceQueue(id: string): Promise<ContractReview> {
   if (USE_MOCK) {
     await delay(800);
@@ -399,7 +516,19 @@ export async function advanceQueue(id: string): Promise<ContractReview> {
         status: "reviewed",
         confidence,
         queuePosition: undefined,
-        reviewedText: review.reviewedText || review.originalText,
+        // Rỗng → dùng SAMPLE_REVIEWED + đề xuất demo mặc định
+        reviewedText: review.reviewedText || undefined,
+        proposals: review.proposals?.length ? review.proposals : undefined,
+        messages: [
+          ...(review.messages || []),
+          {
+            id: `m_${Date.now()}`,
+            role: "assistant",
+            content:
+              "Đã hoàn tất review theo checklist. Có đề xuất Loại A (có thể accept) và cảnh báo Loại B trên vùng khoá — xem panel tài liệu bên phải.",
+            createdAt: new Date().toISOString(),
+          },
+        ],
         updatedAt: new Date().toISOString(),
         contractInsight: buildDefaultContractInsight({
           contractId: review.id,
@@ -806,23 +935,23 @@ export async function saveFields(
   return api.put(`/api/reviews/${id}/fields`, { fields });
 }
 
-/**
- * Loại marker suy ra từ hình thức ký (tài liệu FPT.eContract):
- * review → không marker · sign_img → is · passcode/eKYC → ds.
- */
-export function markerTypeForSignType(
-  signType: EcontractSignType
-): MarkerType | null {
-  if (signType === "review") return null;
-  if (signType === "sign_img") return "is";
-  return "ds";
-}
+import {
+  buildEcontractPayload as buildEcontractPayloadFromFlow,
+  markerTypeForSignType,
+  normalizeSigningFlow,
+  recipientNeedsMarker,
+  validateIdentifySigners,
+  validateMarkers,
+} from "@/lib/econtract-flow";
 
-/** Recipient có cần gán marker không (reviewer thì không). */
-export function recipientNeedsMarker(r: SignRecipient): boolean {
-  if (r.ecRole === "reviewer" || r.signType === "review") return false;
-  return true;
-}
+export {
+  buildMarkerSyntax,
+  markerTypeForSignType,
+  normalizeSigningFlow,
+  recipientNeedsMarker,
+  validateIdentifySigners,
+  validateMarkers,
+} from "@/lib/econtract-flow";
 
 export async function assignMarker(
   id: string,
@@ -894,101 +1023,6 @@ export async function updateRecipient(
   return api.patch(`/api/reviews/${id}/recipients/${recipientId}`, patch);
 }
 
-/**
- * Validate marker theo bảng mã lỗi FPT.eContract (mục 3.2 tài liệu API):
- * isNotExistsMarkerField · tooManyMarkerDigitalField · wrongFieldWithRole ·
- * isNotExistsRecipientInfo · recipientRoleIsNull · isNotExistsIndividual.
- */
-export function validateMarkers(recipients: SignRecipient[]): string[] {
-  const errors: string[] = [];
-  const markerIds = new Set<string>();
-  const signatureMarkersByRecipient = new Map<string, number>();
-
-  for (const r of recipients) {
-    const isTextMarker = r.markerType === "st";
-
-    // Thông tin luồng ký bắt buộc (chỉ với người thật trong luồng, không áp cho marker st)
-    if (!isTextMarker) {
-      if (!r.ecRole) {
-        errors.push(`recipientRoleIsNull: thiếu role (signer/reviewer) cho ${r.name}`);
-      }
-      if (!r.orgName) {
-        errors.push(`isNotExistsIndividual: thiếu orgName của bên ký cho ${r.name}`);
-      }
-      if (!r.email) {
-        errors.push(`isNotExistsRecipientInfo: thiếu email người ký ${r.name}`);
-      }
-    }
-
-    // Reviewer không được có marker
-    if (!recipientNeedsMarker(r)) {
-      if (r.marker) {
-        errors.push(
-          `wrongFieldWithRole: ${r.name} là người xem xét (reviewer) — không được gán marker`
-        );
-      }
-      continue;
-    }
-
-    if (!r.marker) {
-      errors.push(`isNotExistsMarkerField: thiếu marker vị trí ký cho ${r.name}`);
-      continue;
-    }
-
-    // Marker id phải duy nhất trong toàn file
-    if (markerIds.has(r.marker.id)) {
-      errors.push(`Trùng marker id: ${r.marker.id} (id mỗi marker phải duy nhất)`);
-    }
-    markerIds.add(r.marker.id);
-
-    if (!(r.marker.height > 0)) {
-      errors.push(`Marker ${r.marker.id}: chiều cao (h) phải > 0`);
-    }
-
-    // Loại marker phải khớp hình thức ký
-    if (!isTextMarker && r.signType) {
-      const expected = markerTypeForSignType(r.signType);
-      if (expected && r.marker.type !== expected) {
-        errors.push(
-          `wrongFieldWithRole: ${r.name} ký kiểu ${r.signType} cần marker ${expected}, đang gán ${r.marker.type}`
-        );
-      }
-    }
-
-    // Mỗi người ký chỉ 1 marker chữ ký (ds/is) trong file
-    if (r.marker.type === "ds" || r.marker.type === "is") {
-      const key = r.refRecipientId ?? r.id;
-      signatureMarkersByRecipient.set(
-        key,
-        (signatureMarkersByRecipient.get(key) || 0) + 1
-      );
-    }
-
-    // Marker st phải trỏ tới một recipient thật trong luồng ký
-    if (isTextMarker) {
-      const target = r.refRecipientId
-        ? recipients.find((x) => x.id === r.refRecipientId)
-        : undefined;
-      if (!target) {
-        errors.push(
-          `Marker st "${r.name}": thiếu refRecipientId trỏ tới người ký trong luồng`
-        );
-      }
-    }
-  }
-
-  for (const [rid, count] of signatureMarkersByRecipient) {
-    if (count > 1) {
-      const name = recipients.find((r) => r.id === rid)?.name || rid;
-      errors.push(
-        `tooManyMarkerDigitalField: ${name} có ${count} marker chữ ký (chỉ được 1)`
-      );
-    }
-  }
-
-  return errors;
-}
-
 const VERSION_ACTION_LABEL: Record<ContractVersionAction, string> = {
   submit_legal: "Purchasing submit Legal duyệt",
   legal_reject: "Legal sửa & trả về Purchasing",
@@ -1031,10 +1065,7 @@ export async function submitToLegal(id: string): Promise<ContractReview> {
     await delay(300);
     const review = getReview(id);
     if (!review) throw new Error("Not found");
-    const errors = validateMarkers(review.recipients);
-    if (errors.length) {
-      throw new Error(errors[0]);
-    }
+    // Marker kéo-thả thực hiện SAU Legal approve — không chặn Submit.
     const session = getSession();
     // Có Line Manager → chờ Purchasing Manager; không có → thẳng Legal
     const { getUserById } = await import("@/lib/user-store");
@@ -1116,21 +1147,253 @@ export async function legalDecide(
         { feedback }
       );
     } else {
-      review.status = "syncing_econtract";
-      setTimeout(() => {
-        const latest = getReview(id);
-        if (latest && latest.status === "syncing_econtract") {
-          latest.status = "signed";
-          latest.updatedAt = new Date().toISOString();
-          upsertReview(latest);
-        }
-      }, 2500);
+      // Legal duyệt → trả ticket cho người tạo gán vị trí chữ ký (kéo-thả).
+      const {
+        assertSigningMatrixReady,
+        mergeCompanyRecipientsFromMatrix,
+        resolveSigningRecipients,
+      } = await import("@/lib/config-service");
+      assertSigningMatrixReady(review);
+      try {
+        const orgName =
+          review.recipients.find((r) => r.isMyOrg)?.orgName ||
+          review.intake?.businessEntityLabel ||
+          "Công ty SGVN";
+        const resolved = resolveSigningRecipients(
+          review.intake!.documentCategoryId,
+          review.intake!.contractValue,
+          orgName,
+          review.intake?.businessEntityId
+        );
+        review.recipients = mergeCompanyRecipientsFromMatrix(
+          review.recipients,
+          resolved.companyRecipients
+        );
+      } catch {
+        /* matrix assert đã chạy — giữ recipients nếu merge lỗi */
+      }
+      review.status = "pending_markers";
     }
     review.updatedAt = new Date().toISOString();
     upsertReview(review);
     return review;
   }
   return api.post(`/api/reviews/${id}/legal-decision`, { decision, feedback });
+}
+
+/**
+ * Lưu danh sách người ký (bước 1 wizard) — chuẩn hoá thứ tự mua trước, trên→dưới.
+ */
+export async function saveSigningRecipients(
+  id: string,
+  recipients: SignRecipient[]
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(120);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    if (review.status !== "pending_markers") {
+      throw new Error("Ticket không ở trạng thái chờ gán chữ ký");
+    }
+    const cleaned = recipients.filter((r) => r.name !== "__party_shell__");
+    const idErrors = validateIdentifySigners(cleaned);
+    if (idErrors.length) throw new Error(idErrors[0]);
+    review.recipients = normalizeSigningFlow(cleaned);
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.put(`/api/reviews/${id}/recipients`, { recipients });
+}
+
+/**
+ * Người tạo hoàn tất kéo-thả marker → Word+marker → PDF → base64 → POST FPT.eContract.
+ */
+export async function completeMarkersAndPushEcontract(
+  id: string
+): Promise<ContractReview> {
+  const review = USE_MOCK ? getReview(id) : await getReviewById(id);
+  if (!review) throw new Error("Not found");
+  if (review.status !== "pending_markers") {
+    throw new Error("Ticket không ở trạng thái chờ gán chữ ký");
+  }
+  const errors = validateMarkers(review.recipients);
+  if (errors.length) throw new Error(errors[0]);
+  const { assertSigningMatrixReady } = await import("@/lib/config-service");
+  assertSigningMatrixReady(review);
+
+  const login = getEcontractUserLogin();
+  if (!login) {
+    throw new Error(
+      "Thiếu tài khoản đăng nhập để gọi eContract — đăng nhập lại rồi Submit"
+    );
+  }
+
+  // Gọi Next API route (server) — login FPT bằng TK/MK user đang login + convert + excall
+  const res = await fetch("/api/econtract/push", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      reviewId: id,
+      review,
+      username: login.username,
+      password: login.password,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.message || data.error || "Đẩy eContract thất bại");
+  }
+
+  if (USE_MOCK) {
+    const latest = getReview(id);
+    if (!latest) throw new Error("Not found");
+    latest.status =
+      data.ok === false ? "pending_markers" : "syncing_econtract";
+    latest.econtract = data.econtract;
+    latest.updatedAt = new Date().toISOString();
+    if (data.ok !== false && data.econtract?.envelopeId) {
+      // Giữ syncing; callback thật sẽ chuyển signed — demo: signed sau vài giây nếu FPT ok
+      setTimeout(() => {
+        const r = getReview(id);
+        if (r && r.status === "syncing_econtract") {
+          r.status = "signed";
+          r.updatedAt = new Date().toISOString();
+          if (r.econtract) r.econtract.envStatus = "Processing";
+          upsertReview(r);
+        }
+      }, 3000);
+    }
+    upsertReview(latest);
+    if (data.ok === false) {
+      throw new Error(data.message || "eContract từ chối request");
+    }
+    return latest;
+  }
+  return data.review as ContractReview;
+}
+
+/** Gán marker bằng kéo-thả (trang + tọa độ %). */
+export async function placeMarkerOnDocument(
+  id: string,
+  recipientId: string,
+  placement: {
+    page: number;
+    xPct: number;
+    yPct: number;
+    height?: number;
+    width?: number;
+    sizePreset?: "default" | "large";
+    signType?: EcontractSignType;
+  }
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    await delay(120);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const target = review.recipients.find((r) => r.id === recipientId);
+    if (!target) throw new Error("Không tìm thấy người nhận");
+    if (!recipientNeedsMarker(target)) {
+      throw new Error(
+        `${target.name} không cần marker (chỉ Người ký / Văn thư)`
+      );
+    }
+    const signType =
+      placement.signType || target.signType || "sign_fca.passcode";
+    const mt = markerTypeForSignType(signType as EcontractSignType);
+    if (!mt) throw new Error("Hình thức ký không hợp lệ cho marker");
+    const height =
+      placement.height ??
+      target.marker?.height ??
+      (target.marker?.sizePreset === "large" ? 140 : 98);
+    const width =
+      placement.width ??
+      target.marker?.width ??
+      (target.marker?.sizePreset === "large" ? 220 : 164);
+    const sizePreset =
+      placement.sizePreset || target.marker?.sizePreset || "default";
+    const positionLabel = `Trang ${placement.page} · (${Math.round(placement.xPct)}%, ${Math.round(placement.yPct)}%)`;
+    review.recipients = review.recipients.map((r) => {
+      if (r.id !== recipientId) return r;
+      return {
+        ...r,
+        signType,
+        markerType: mt,
+        marker: {
+          id: `${mt}_${r.id}`,
+          type: mt,
+          height,
+          width,
+          sizePreset,
+          positionLabel,
+          page: placement.page,
+          xPct: placement.xPct,
+          yPct: placement.yPct,
+        },
+      };
+    });
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return review;
+  }
+  return api.post(`/api/reviews/${id}/markers/place`, {
+    recipientId,
+    ...placement,
+  });
+}
+
+/**
+ * Áp dụng ma trận ký eContract (Loại HĐ cha + Giá trị) → thay recipients phía công ty.
+ * Giữ nguyên bên đối tác và marker `st`.
+ */
+export async function applySigningMatrix(
+  id: string
+): Promise<{ review: ContractReview; bandLabel: string }> {
+  const {
+    mergeCompanyRecipientsFromMatrix,
+    resolveSigningRecipients,
+  } = await import("@/lib/config-service");
+
+  if (USE_MOCK) {
+    await delay(200);
+    const review = getReview(id);
+    if (!review) throw new Error("Not found");
+    const parentId = review.intake?.documentCategoryId;
+    const value = review.intake?.contractValue;
+    if (!parentId) {
+      throw new Error("Thiếu Loại HĐ trên intake — không áp dụng ma trận ký");
+    }
+    if (value == null || String(value).trim() === "") {
+      throw new Error("Thiếu Giá trị HĐ trên intake — không áp dụng ma trận ký");
+    }
+    const orgName =
+      review.recipients.find((r) => r.isMyOrg)?.orgName ||
+      review.intake?.businessEntityLabel ||
+      "Công ty SGVN";
+    const resolved = resolveSigningRecipients(
+      parentId,
+      value,
+      orgName,
+      review.intake?.businessEntityId
+    );
+    review.recipients = mergeCompanyRecipientsFromMatrix(
+      review.recipients,
+      resolved.companyRecipients
+    );
+    const allAssigned = review.recipients
+      .filter(recipientNeedsMarker)
+      .every((r) => r.marker);
+    if (
+      !allAssigned &&
+      (review.status === "awaiting_markers" || review.status === "reviewed")
+    ) {
+      review.status = "reviewed";
+    }
+    review.updatedAt = new Date().toISOString();
+    upsertReview(review);
+    return { review, bandLabel: resolved.bandLabel };
+  }
+  return api.post(`/api/reviews/${id}/apply-signing-matrix`, {});
 }
 
 async function fetchDocxBytes(url: string): Promise<ArrayBuffer> {
@@ -1235,85 +1498,7 @@ export async function reuploadSubmit(
 export { ReuploadValidationError, formatIssueMessage };
 export type { FieldStructureIssue, ReuploadValidationResult };
 
-/**
- * Cú pháp marker theo tài liệu "Hướng dẫn cấu trúc đánh dấu marker" FPT.eContract:
- * `#ds:id_123 r:p_001_r_001 h:100 #` — khoảng cách giữa 2 dấu `#` là chiều rộng ô ký;
- * chèn vào file bằng mực trắng để ẩn với người đọc.
- */
-export function buildMarkerSyntax(r: SignRecipient): string {
-  if (!r.marker) return "";
-  const { type, id, height } = r.marker;
-  const recipientRef = r.refRecipientId ?? r.id;
-  return `#${type}:${id} r:${recipientRef} h:${height} #`;
-}
-
-/** signTypes gửi sang eContract theo hình thức ký. */
-function econtractSignTypes(signType?: EcontractSignType): string[] {
-  if (!signType || signType === "review") return [];
-  if (signType === "sign_img") return ["Sign-IMG"];
-  if (signType === "sign_ekyc") return ["sign_ekyc", "sign_fca.otp"];
-  return ["sign_fca.passcode"];
-}
-
-/**
- * Dựng payload API khởi tạo HĐ eContract (mục 3.1.2 tài liệu API —
- * POST {ROOT_URL}/services/excall/api/excall) từ review hiện tại.
- * Dùng để preview/kiểm tra trước khi backend gọi thật.
- */
 export function buildEcontractPayload(review: ContractReview) {
-  // Marker st không phải người ký — loại khỏi parties
-  const flowRecipients = review.recipients.filter((r) => r.markerType !== "st");
-
-  const partyMap = new Map<
-    string,
-    { id: string; isMyOrg: boolean; isOrg: boolean; orgName: string; order: number; recipients: unknown[] }
-  >();
-
-  flowRecipients.forEach((r, idx) => {
-    const partyId = r.partyId || `p_${String(idx + 1).padStart(3, "0")}`;
-    if (!partyMap.has(partyId)) {
-      partyMap.set(partyId, {
-        id: partyId,
-        isMyOrg: r.isMyOrg ?? r.role === "company",
-        isOrg: true,
-        orgName: r.orgName || "",
-        order: r.order ?? partyMap.size + 1,
-        recipients: [],
-      });
-    }
-    partyMap.get(partyId)!.recipients.push({
-      isEsign: false,
-      recipientId: r.id,
-      email: r.email || "",
-      personalName: r.name,
-      telephoneNumber: r.phone || "",
-      contactId: "",
-      role: r.ecRole || "signer",
-      order: r.order ?? 1,
-      notifyTypes: ["email_econtract"],
-      signTypes: econtractSignTypes(r.signType),
-    });
-  });
-
-  return {
-    id: "",
-    refId: review.code,
-    selector:
-      "flow_start_AI_LEGAL_create_auto_determine_econtract_integrate",
-    lookup: review.code,
-    attrs: null,
-    payload: null,
-    body: {
-      alias: "",
-      refId: review.code,
-      file: "<base64 file .docx đã chèn marker mực trắng>",
-      fileName: review.fileName,
-      docTypeCode: null as number | null, // chốt mã loại hợp đồng với FPT (lỗi docTypeCodeIsNotExists)
-      headerFields: [
-        { id: "envName", name: "Tên tài liệu", type: "string", value: review.title },
-        { id: "envNo", name: "Số tài liệu", type: "string", value: review.code },
-      ],
-      parties: Array.from(partyMap.values()),
-    },
-  };
+  return buildEcontractPayloadFromFlow(review, "<base64 file PDF đã chèn marker mực trắng>");
 }
+

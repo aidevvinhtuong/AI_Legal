@@ -4,6 +4,7 @@ import type {
   ConfigAuditEntry,
   ContractParentCategory,
   ContractTypeConfigVersion,
+  SigningAuthorityRule,
 } from "@/lib/config-types";
 import { CONTRACT_PARENT_CATEGORIES } from "@/lib/config-types";
 
@@ -38,6 +39,80 @@ function clause(
     ...partial,
   };
 }
+
+/** Seed bảng phân quyền ký eContract (demo). */
+export const SEED_SIGNING_RULES: SigningAuthorityRule[] = [
+  {
+    id: "sar_1",
+    businessEntityIds: ["be_sgvn", "be_vts"],
+    documentCategoryId: "hqp",
+    minValue: 0,
+    maxValue: 1_000_000_000,
+    ecRole: "reviewer",
+    userId: "usr_legal",
+    personalName: "Trần Thị Legal",
+    email: "legal@saint-gobain.com",
+    telephoneNumber: "0901000003",
+    signType: "review",
+    order: 1,
+  },
+  {
+    id: "sar_2",
+    businessEntityIds: ["be_sgvn", "be_vts"],
+    documentCategoryId: "hqp",
+    minValue: 0,
+    maxValue: 1_000_000_000,
+    ecRole: "signer",
+    userId: "usr_manager_pur",
+    personalName: "Lê Thị Manager",
+    email: "manager.pur@saint-gobain.com",
+    telephoneNumber: "0901000001",
+    signType: "sign_fca.passcode",
+    order: 2,
+  },
+  {
+    id: "sar_3",
+    businessEntityIds: ["be_sgvn"],
+    documentCategoryId: "hqp",
+    minValue: 1_000_000_001,
+    maxValue: 5_000_000_000,
+    ecRole: "reviewer",
+    userId: "usr_legal",
+    personalName: "Trần Thị Legal",
+    email: "legal@saint-gobain.com",
+    telephoneNumber: "0901000003",
+    signType: "review",
+    order: 1,
+  },
+  {
+    id: "sar_4",
+    businessEntityIds: ["be_sgvn"],
+    documentCategoryId: "hqp",
+    minValue: 1_000_000_001,
+    maxValue: 5_000_000_000,
+    ecRole: "signer",
+    userId: "usr_manager_pur",
+    personalName: "Lê Thị Manager",
+    email: "manager.pur@saint-gobain.com",
+    telephoneNumber: "0901000001",
+    signType: "sign_fca.passcode",
+    order: 2,
+  },
+  {
+    id: "sar_5",
+    businessEntityIds: ["be_sgvn", "be_rigips"],
+    documentCategoryId: "hqp",
+    minValue: 5_000_000_001,
+    maxValue: null,
+    ecRole: "signer",
+    userId: "usr_admin",
+    personalName: "Nguyễn Admin",
+    email: "admin@saint-gobain.com",
+    telephoneNumber: "",
+    signType: "sign_fca.passcode",
+    order: 1,
+  },
+];
 
 export const SEED_MATRICES: ApprovalMatrixConfig[] = [
   {
@@ -336,6 +411,7 @@ export const SEED_CONFIG_AUDIT: ConfigAuditEntry[] = [
 /** v5: parent (documentCategories) + child overlay (contractNames); AI merge */
 const CFG_KEY = "ai_econtract_config_versions_v5";
 const MATRIX_KEY = "ai_econtract_matrices_v1";
+const SIGNING_RULES_KEY = "ai_econtract_signing_rules_v2";
 const AUDIT_KEY = "ai_econtract_config_audit_v2";
 const PARENT_KEY = "ai_econtract_parent_categories_v1";
 
@@ -372,6 +448,14 @@ export function loadMatrices() {
 
 export function saveMatrices(data: ApprovalMatrixConfig[]) {
   save(MATRIX_KEY, data);
+}
+
+export function loadSigningRules() {
+  return load(SIGNING_RULES_KEY, SEED_SIGNING_RULES);
+}
+
+export function saveSigningRules(data: SigningAuthorityRule[]) {
+  save(SIGNING_RULES_KEY, data);
 }
 
 export function loadConfigAudit() {

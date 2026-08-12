@@ -38,13 +38,14 @@ Là Purchasing, tôi muốn nhập thông tin hợp đồng (từ Form lists) v�
 - **AC2** `[C5 đã chốt: chặn hoàn toàn]`: Given file bị sửa vùng khoá / mất `permStart` / thiếu field Then hiển thị lỗi và **chặn hoàn toàn, không override**.
 - **AC3**: Given file hợp lệ Then version bump, chạy lại AI review, lịch sử version ghi nhận.
 
-### US-P06 — Gán marker ký số · Demo ✅ (click-chọn; kéo-thả chưa có)
-- **AC1**: Given chưa gán đủ marker cho các bên ký Then nút Submit for approval bị chặn kèm danh sách lỗi.
-- **AC2**: Given gán marker When lưu Then sinh đúng cú pháp FPT.eContract (`#ds:id r:p_xxx_r_yyy h:100 #`, tương tự `is`/`st`).
-- **AC3** `[A7 đã chốt]`: Given màn gán marker Then Purchasing **kéo-thả marker trên preview** (demo hiện click-chọn; kéo-thả thuộc hoàn thiện Sprint 1).
+### US-P06 — Xác định người ký & gán marker (sau Legal) · Demo ✅
+- **AC1**: Given Legal approve Then status → `pending_markers`; Task người tạo hiện nút **Gán chữ ký** (không chặn Submit duyệt vì thiếu marker).
+- **AC2**: Given mở `/identify-signers` Then bên mua prefill từ ma trận (tên org read-only; thêm/sửa/xóa người); phải **Thêm bên ký** (≥1 đối tác); mỗi đối tác bắt buộc chọn Tổ chức|Cá nhân; chỉ Ký chính + Văn thư cần marker sau.
+- **AC3**: Given `/design-markers` When kéo-thả loại ký + chọn Người nhận + kích thước Then lưu tọa độ %; cú pháp `#ds/#is … h:… #`; Submit chặn nếu thiếu marker Ký chính/Văn thư.
+- **AC4**: Given Submit đủ marker Then Word+marker → PDF/base64 → POST eContract; lưu `envelopeId` / trạng thái tích hợp.
 
 ### US-P07 — Gửi duyệt & xử lý feedback khi bị reject · Demo ✅
-- **AC1**: Given đủ marker When Submit for approval Then trạng thái → `pending_manager`; Purchasing Manager thấy ticket trong màn Task.
+- **AC1**: Given đã lưu chỉnh sửa When Submit for approval Then trạng thái → `pending_manager` (hoặc `pending_legal` nếu không có Line Manager) — **không** yêu cầu marker.
 - **AC2**: Given Manager hoặc Legal reject Then ticket về Task của Purchasing owner kèm comment; Purchasing sửa (TH1 checklist / TH2 Accept Track Changes / TH3 reupload) rồi gửi lại (version mới).
 - **AC3** `[A4 đã chốt]`: Given feedback có file đính kèm Then file được lưu và **Purchasing tải được**.
 
@@ -126,9 +127,10 @@ Là Legal, tôi muốn (tuỳ chọn) thêm cấu hình riêng cho một Tên H�
 ### US-C03 — Import/Export checklist · ❌ **Bỏ khỏi Sprint 1** `[A10 đã chốt]`
 - Legal soạn checklist trực tiếp trên UI (US-C01 / US-C05).
 
-### US-C04 — Quản lý Approval Matrix · Demo 🟡 (metadata / link, chưa CRUD đầy đủ)
-- **AC1**: Given cấu hình loại HĐ Then có thể gắn/tham chiếu matrix (global hoặc theo loại) trên list/meta.
-- **AC2**: Vai trò matrix với luồng Manager → Legal (routing vs cảnh báo + summary) — chốt Tech Design; demo chưa CRUD matrix đầy đủ.
+### US-C04 — Phân quyền ký eContract + Approval Matrix confidence · Demo ✅ / 🟡
+- **AC1** ✅: Given Configurations → tab **Phân quyền ký** Then cấu hình bảng Công ty (multi) × Loại HĐ × min/max × Xem xét|Ký chính × User; Lưu; resolve → recipients eContract (`reviewer`/`signer`).
+- **AC2** ✅: Given Legal approve (hoặc mở `/identify-signers`) Then resolve ma trận → prefill bên mua; người tạo chỉnh được; Legal approve chặn nếu không khớp dòng.
+- **AC3** 🟡: Approval Matrix (ngưỡng ↔ Manager/Director/BOD) vẫn dùng **cảnh báo + % tin cậy** — không routing nội bộ Manager→Legal.
 
 ## Epic 4 — IT: Cấu hình hệ thống
 
@@ -158,8 +160,8 @@ Là IT, tôi muốn quản trị danh mục dropdown form Tạo tài liệu, g�
 - **AC2**: Given LLM lỗi/timeout Then fallback rule-based, đánh dấu rõ `[phụ thuộc B4]`.
 - **AC3**: Given có findings Then stage `ai_summary_fairness` sinh summary + fairness; % tin cậy và Fairness Score tách biệt `[B2]`.
 
-### US-S02 — Đồng bộ Econtract (outbound) · Demo ❌ `[phụ thuộc D1a/D1b/D1e]`
-- **AC1**: Given Legal approve Then gọi API FPT.eContract đẩy trình ký với marker; file convert base64 `[D1c]`.
+### US-S02 — Đồng bộ Econtract (outbound) · Demo 🟡 (Next API `/api/econtract/push`; cần credentials FPT) `[phụ thuộc D1a/D1b/D1e]`
+- **AC1**: Given người tạo Submit trên design-markers (sau Legal + đủ marker) Then gọi login + excall FPT với parties + file base64 (PDF ưu tiên) `[D1c]`.
 - **AC2** `[D1d]`: Kênh nhận file ký về **không thuộc scope** AI Legal.
 
 ### US-S03 — Xuất `.docx` giữ format · Demo ❌ `[phụ thuộc C4]`

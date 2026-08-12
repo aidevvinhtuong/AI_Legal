@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/select";
 import { StatusBadge } from "@/components/review/status-badge";
 import { ChatPanel } from "@/components/review/chat-panel";
-import { MarkerPanel } from "@/components/review/marker-panel";
 import { ContractInsightPopup } from "@/components/review/contract-insight-popup";
 import { ReviewedWordView } from "@/components/review/reviewed-word-view";
 import {
@@ -35,7 +34,6 @@ import type {
 import {
   acceptAllProposals,
   advanceQueue,
-  assignMarker,
   getReviewById,
   getSession,
   listBusinessEntities,
@@ -49,11 +47,9 @@ import {
   submitToLegal,
   undoAllProposals,
   updateProposalStatus,
-  updateRecipient,
   updateReviewIntake,
   updateReviewedDocument,
   updateReviewedSection,
-  validateMarkers,
 } from "@/lib/review-service";
 import { isLegalLike } from "@/lib/roles";
 import type {
@@ -202,7 +198,6 @@ export default function ContractDetailPage() {
     );
   }
 
-  const markerErrors = validateMarkers(review.recipients);
   const isDraft = review.status === "draft";
   const canEdit =
     !isLegal &&
@@ -396,16 +391,20 @@ export default function ContractDetailPage() {
               </Button>
             )}
             {canEdit && !isDraft && (
-              <Button
-                onClick={handleSubmitLegal}
-                disabled={submitting || markerErrors.length > 0}
-              >
+              <Button onClick={handleSubmitLegal} disabled={submitting}>
                 {submitting ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
                   <Send className="h-4 w-4 mr-2" />
                 )}
-                Gửi Legal duyệt
+                Gửi duyệt
+              </Button>
+            )}
+            {review.status === "pending_markers" && (
+              <Button asChild>
+                <a href={`/dashboard/contracts/${review.id}/identify-signers`}>
+                  Gán chữ ký
+                </a>
               </Button>
             )}
             {isLegal && review.status === "pending_legal" && (
@@ -506,18 +505,9 @@ export default function ContractDetailPage() {
             className="mt-0 flex-1 min-h-0 flex flex-col overflow-hidden data-[state=inactive]:hidden"
           >
             {showWorkspace && (
-              <Tabs
-                defaultValue="workspace"
-                className="flex flex-1 min-h-0 flex-col overflow-hidden"
-              >
+              <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                 <div className="shrink-0 flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <TabsList className="self-start">
-                      <TabsTrigger value="workspace">Workspace</TabsTrigger>
-                      <TabsTrigger value="markers" disabled={isQueueing}>
-                        Marker ký số
-                      </TabsTrigger>
-                    </TabsList>
                     {versionHistory.length > 0 && (
                       <div className="flex items-center gap-1.5">
                         <History className="h-3.5 w-3.5 text-muted-foreground" />
@@ -574,10 +564,7 @@ export default function ContractDetailPage() {
                   )}
                 </div>
 
-                <TabsContent
-                  value="workspace"
-                  className="mt-2 flex-1 min-h-0 overflow-hidden data-[state=inactive]:hidden"
-                >
+                <div className="mt-2 flex-1 min-h-0 overflow-hidden">
                   <div
                     ref={splitRef}
                     className="flex flex-col xl:flex-row gap-3 xl:gap-0 h-full min-h-0"
@@ -734,47 +721,8 @@ export default function ContractDetailPage() {
                       )}
                     </Card>
                   </div>
-                </TabsContent>
-
-                <TabsContent
-                  value="markers"
-                  className="mt-2 flex-1 min-h-0 overflow-y-auto data-[state=inactive]:hidden"
-                >
-                  <Card className="rounded-xl">
-                    <CardContent className="pt-6">
-                      <MarkerPanel
-                        review={review}
-                        recipients={review.recipients}
-                        errors={canEdit ? markerErrors : []}
-                        readOnly={!canEdit}
-                        onAssign={async (recipientId, positionLabel, height) => {
-                          const updated = await assignMarker(
-                            review.id,
-                            recipientId,
-                            positionLabel,
-                            height
-                          );
-                          setReview(updated);
-                        }}
-                        onUpdateRecipient={async (recipientId, patch) => {
-                          const updated = await updateRecipient(
-                            review.id,
-                            recipientId,
-                            patch
-                          );
-                          setReview(updated);
-                        }}
-                      />
-                      {canEdit && markerErrors.length > 0 && (
-                        <p className="text-xs text-destructive mt-4">
-                          Nút &quot;Gửi Legal duyệt&quot; bị chặn cho đến khi đủ marker
-                          hợp lệ.
-                        </p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
+                </div>
+              </div>
             )}
           </TabsContent>
         </Tabs>
