@@ -1,20 +1,24 @@
-import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import { promises as fs } from "fs";
-import type { ContractReview } from "@/lib/types";
-import { buildEcontractPayload, validateMarkers } from "@/lib/econtract-flow";
-import { prepareEcontractFileBase64 } from "@/lib/econtract-file";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+import type { Request, Response } from "express";
+import type { ContractReview } from "../lib/types";
+import {
+  buildEcontractPayload,
+  validateMarkers,
+} from "../lib/econtract-flow";
+import { prepareEcontractFileBase64 } from "../services/econtract-file";
 
 type PushBody = {
   reviewId?: string;
   review: ContractReview;
-  /** TK + MK user đang login AI Legal → body login FPT.eContract */
   username?: string;
   password?: string;
 };
+
+function samplesRoot(): string {
+  if (process.env.SAMPLES_DIR) return process.env.SAMPLES_DIR;
+  return path.join(process.cwd(), "..", "frontend", "public");
+}
 
 async function loadDocxBytes(review: ContractReview): Promise<Buffer> {
   const rel =
@@ -30,20 +34,18 @@ async function loadDocxBytes(review: ContractReview): Promise<Buffer> {
 
   if (rel.startsWith("blob:")) {
     throw new Error(
-      "File đang ở blob URL trình duyệt — hãy dùng file mẫu /samples hoặc upload lại trước khi đẩy eContract"
+      "File đang ở blob URL trình duyệt — dùng file /samples hoặc upload lại trước khi đẩy eContract"
     );
   }
 
   const clean = rel.replace(/^\//, "");
-  const abs = path.join(process.cwd(), "public", clean);
+  const abs = path.join(samplesRoot(), clean);
   try {
     return await fs.readFile(abs);
   } catch {
-    const fallback = path.join(
-      process.cwd(),
-      "public/samples/Template_HDDV_chung_2026.docx"
+    return fs.readFile(
+      path.join(samplesRoot(), "samples/Template_HDDV_chung_2026.docx")
     );
-    return fs.readFile(fallback);
   }
 }
 
@@ -56,7 +58,7 @@ async function econtractLogin(
   const clientsecret = process.env.ECONTRACT_CLIENT_SECRET;
   if (!clientid || !clientsecret) {
     throw new Error(
-      "Thiếu cấu hình eContract: ECONTRACT_CLIENT_ID / ECONTRACT_CLIENT_SECRET trong .env.local"
+      "Thiếu ECONTRACT_CLIENT_ID / ECONTRACT_CLIENT_SECRET trong backend/.env"
     );
   }
   if (!username?.trim() || !password) {
@@ -69,7 +71,7 @@ async function econtractLogin(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password, clientid, clientsecret }),
   });
-  const data = await res.json().catch(() => ({}));
+  const data = (await res.json().catch(() => ({}))) as Record<string, string>;
   if (!res.ok || !data.access_token) {
     throw new Error(
       data.error_description ||
@@ -77,26 +79,22 @@ async function econtractLogin(
         `Login eContract thất bại (HTTP ${res.status})`
     );
   }
-  return data.access_token as string;
+  return data.access_token;
 }
 
-export async function POST(req: NextRequest) {
+export async function pushEcontract(req: Request, res: Response) {
   try {
-    const body = (await req.json()) as PushBody;
+    const body = req.body as PushBody;
     const review = body.review;
     if (!review?.id || !review.recipients) {
-      return NextResponse.json(
-        { ok: false, message: "Thiếu review trong request" },
-        { status: 400 }
-      );
+      return res
+        .status(400)
+        .json({ ok: false, message: "Thiếu review trong request" });
     }
 
     const markerErrors = validateMarkers(review.recipients);
     if (markerErrors.length) {
-      return NextResponse.json(
-        { ok: false, message: markerErrors[0] },
-        { status: 400 }
-      );
+      return res.status(400).json({ ok: false, message: markerErrors[0] });
     }
 
     const root =
@@ -135,54 +133,57 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify(payload),
     });
-    const ecJson = await ecRes.json().catch(() => ({}));
+    const ecJson = (await ecRes.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
 
     const code = ecJson.code ?? ecJson.error;
     const ok = String(code) === "0" || code === 0;
-    const response = ecJson.response || {};
+    const response = (ecJson.response || {}) as Record<string, string>;
     const econtract = {
       envelopeId: response.envelopeId || response.envId,
       envStatus: "Processing",
       code,
-      message: ecJson.message || ecJson.error_description || "",
+      message:
+        (ecJson.message as string) ||
+        (ecJson.error_description as string) ||
+        "",
       urlIndividual: response.urlIndividual,
       fileMode: prepared.mode,
       pushedAt: new Date().toISOString(),
       raw: ecJson,
-      error: ok ? undefined : ecJson.message || "eContract trả lỗi",
+      error: ok ? undefined : (ecJson.message as string) || "eContract trả lỗi",
       note: prepared.note,
     };
 
+    const preview = {
+      ...payload,
+      body: {
+        ...payload.body,
+        file: `[base64 ${prepared.mode} ${prepared.base64.length} chars]`,
+      },
+    };
+
     if (!ok) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message:
-            econtract.message ||
-            `eContract lỗi code=${code}`,
-          econtract,
-          payloadPreview: { ...payload, body: { ...payload.body, file: `[base64 ${prepared.mode} ${prepared.base64.length} chars]` } },
-        },
-        { status: 502 }
-      );
+      return res.status(502).json({
+        ok: false,
+        message: econtract.message || `eContract lỗi code=${code}`,
+        econtract,
+        payloadPreview: preview,
+      });
     }
 
-    return NextResponse.json({
+    return res.json({
       ok: true,
       message: prepared.note
         ? `Đã tạo envelope trên eContract (${prepared.note})`
         : "Đã tạo envelope trên eContract",
       econtract,
-      payloadPreview: {
-        ...payload,
-        body: {
-          ...payload.body,
-          file: `[base64 ${prepared.mode} ${prepared.base64.length} chars]`,
-        },
-      },
+      payloadPreview: preview,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Lỗi không xác định";
-    return NextResponse.json({ ok: false, message }, { status: 500 });
+    return res.status(500).json({ ok: false, message });
   }
 }

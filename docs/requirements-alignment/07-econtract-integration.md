@@ -84,14 +84,21 @@ sequenceDiagram
 
 | AI Legal (`types.ts`) | eContract | Ghi chú |
 |------------------------|-----------|---------|
-| `review.code` | `refId` = `lookup` | mã tra cứu 2 hệ thống |
-| `review.title` | `headerFields.envName` | |
-| `review.code` | `headerFields.envNo` | |
-| `SignRecipient.partyId/orgName/isMyOrg/order` | `parties[]` | orgName bắt buộc |
+| `review.code` | `refId` = `lookup` = `body.refId` | mã tra cứu 2 hệ thống |
+| `intake.documentName` / `review.title` | `headerFields.envName` | Tên tài liệu |
+| `intake.documentNumber` / `review.code` | `headerFields.envNo` | Số tài liệu |
+| `intake.signingDate` | `headerFields.envDate` | Ngày ký (`type: Date`) |
+| `intake.businessEntityLabel` | `headerFields.envSubmittedFrom` | Đơn vị tạo yêu cầu |
+| `intake.documentCategoryLabel` | `headerFields.envF00` | Loại hợp đồng |
+| `intake.hasDiscount` | `headerFields.envF01` | `Có - Yes` / `Không - No` |
+| `intake.discountDetails` | `headerFields.envF02` | Chi tiết chiết khấu |
+| `intake.contractValue` | `headerFields.envF03` | Giá trị (`type: Number`) |
+| `SignRecipient.partyId/orgName/isMyOrg/order` | `parties[]` | orgName bắt buộc; `partyKind` → `isOrg` |
 | `SignRecipient.id` (`p_001_r_001`) | `recipients[].recipientId` | |
 | `SignRecipient.email/name/phone` | `email/personalName/telephoneNumber` | email bắt buộc |
-| `SignRecipient.ecRole` | `role: signer\|reviewer` | |
-| `SignRecipient.signType` | `signTypes[]` | mapping mục 1.2 |
+| `SignRecipient.contactId` / username / email local | `recipients[].contactId` | ưu tiên nhập tay → username user → local-part email → id |
+| `SignRecipient.ecRole` | `role: signer\|reviewer` | clerk→signer; coordinator/cc/reviewer→reviewer |
+| `SignRecipient.signType` | `signTypes[]` | mapping mục 1.2; reviewer = `[]` |
 | `SignRecipient.marker` | marker chèn trong file | id duy nhất, h, mực trắng |
 | `review.status: syncing_econtract → signed` | `envStatus: Processing → Completed` | thêm map `Rejected/Voided/Overdue` — xem mục 4 |
 
@@ -119,7 +126,7 @@ Thứ tự ký: bên mua trước (`parties.order`), trong bên theo trên→dư
 
 **Ảnh minh họa:** `docs/images/signing-flow/` (01–06).
 
-**Code:** `econtract-flow.ts`, `econtract-file.ts`, `IdentifySignersPanel`, `POST /api/econtract/push`; env `ECONTRACT_*` trong `.env.local`.
+**Code:** `frontend` wizard UI + `backend/` (`econtract-flow`, `econtract-file`, `POST /api/econtract/push`); env `ECONTRACT_*` trong `backend/.env` (và mirror `frontend/.env.local` nếu cần).
 
 ### 2.3. Đã code trên FE demo
 
@@ -129,7 +136,7 @@ Thứ tự ký: bên mua trước (`parties.order`), trong bên theo trên→dư
 | Validate + order | `econtract-flow.ts` | `validateIdentifySigners` · `validateMarkers` · mua trước, trên→dưới |
 | Wizard bước 1 | `identify-signers/page.tsx` · `identify-signers-panel.tsx` | 2 cột; Thêm bên ký; lưu trước khi thoát |
 | Wizard bước 2 | `design-markers/page.tsx` | Kéo-thả; Người nhận; size; Submit |
-| File + API | `econtract-file.ts` · `api/econtract/push/route.ts` | Marker trắng → PDF → base64 → login + excall |
+| File + API | `backend/src/services/econtract-file.ts` · `backend/src/routes/econtract.ts` | Marker trắng → PDF → base64 → login + excall |
 | Ma trận ký | `config-service.ts` · Configurations tab signing | Resolve khi Legal approve / mở bước 1 |
 | Ảnh minh họa | `docs/images/signing-flow/` | 01–06 |
 

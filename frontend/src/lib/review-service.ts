@@ -1229,7 +1229,7 @@ export async function completeMarkersAndPushEcontract(
     );
   }
 
-  // Gọi Next API route (server) — login FPT bằng TK/MK user đang login + convert + excall
+  // Backend Express (:8000) qua Next rewrite /api/* — login FPT + convert + excall
   const res = await fetch("/api/econtract/push", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

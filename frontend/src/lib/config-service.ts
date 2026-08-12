@@ -28,6 +28,7 @@ import {
 } from "@/lib/form-lists-store";
 import { loadReviews } from "@/lib/mock-data";
 import { getSession } from "@/lib/review-service";
+import { getUserById } from "@/lib/user-store";
 import type {
   ContractGroup,
   DocumentCategory,
@@ -1192,6 +1193,8 @@ function ruleToRecipient(
   const mt = markerTypeForSignType(signType);
   const markerType: MarkerType = mt || "ds";
   const seq = String(index + 1).padStart(3, "0");
+  const user = getUserById(rule.userId);
+  const contactId = user?.username?.trim() || rule.userId || "";
   return {
     id: `p_001_r_${seq}`,
     name: rule.personalName,
@@ -1202,6 +1205,8 @@ function ruleToRecipient(
     order: rule.order || index + 1,
     email: rule.email,
     phone: rule.telephoneNumber || "",
+    userId: rule.userId,
+    contactId,
     ecRole: isReviewer ? "reviewer" : "signer",
     signType,
     markerType,

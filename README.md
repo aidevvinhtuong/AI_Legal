@@ -1,6 +1,6 @@
 # AI Legal
 
-> Nguồn yêu cầu: `Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx` · Blueprint: `docs/SGB_AILegal_Blueprint_Sprint1.docx` (**v1.27**)
+> Nguồn yêu cầu: `Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx` · Blueprint: `docs/SGB_AILegal_Blueprint_Sprint1.docx` (**v1.28**)
 
 Trợ lý AI nội bộ (**AI Legal**) giúp **phòng Mua hàng** tự rà soát và hoàn thiện hợp đồng nháp (`.docx`) trước khi **Purchasing Manager → Legal** phê duyệt trong hệ thống, rồi **đồng bộ sang FPT.eContract** để trình ký.
 
@@ -19,8 +19,8 @@ Trợ lý AI nội bộ (**AI Legal**) giúp **phòng Mua hàng** tự rà soát
 
 | Vai trò | Quyền / trách nhiệm |
 |---------|---------------------|
-| **Purchasing** | Khởi tạo / **Review hợp đồng** (upload nhanh), AI review, chỉnh sửa, submit duyệt; sau Legal: **Gán chữ ký** (xác định người ký + marker); chỉ thấy HĐ của mình |
-| **Purchasing Manager** | Duyệt HĐ subordinate (TH1/TH2/TH3); Approve → Legal |
+| **Purchasing** | Khởi tạo + Submit duyệt; hoặc **Review hợp đồng** (chỉ AI review, không duyệt); sau Legal: **Gán chữ ký**; chỉ thấy HĐ của mình |
+| **Purchasing Manager** | Duyệt HĐ subordinate (Approve/Reject cơ bản Sprint 1); Approve → Legal |
 | **Legal** | Checklist loại HĐ (Sửa + Lưu); duyệt `pending_legal`; Approve → `pending_markers` (không đẩy eContract ngay) |
 | **IT** | Triển khai LLM Local, app, tích hợp; Configurations (Form lists / **Phân quyền ký** / System Prompt); Users + tick phân quyền |
 | **eContract** | Hệ thống trình ký FPT — outbound API + callback/sFTP nhận file đã ký |
@@ -64,32 +64,29 @@ Tự sinh khi tạo / lưu nháp — **user không sửa được** (field read-
 
 ## Review hợp đồng (menu sidebar)
 
-Luồng **nhanh** chỉ để upload + AI review — không bắt buộc điền full form Tạo tài liệu.
+Luồng **chỉ AI review** — không Submit duyệt, không Task, không eContract.
 
 | Bước | Màn / route | Nội dung |
 |------|-------------|----------|
 | 1 | Sidebar **Review hợp đồng** → `/dashboard/review` | Bắt buộc: **Loại hợp đồng** + **Tên hợp đồng**; upload **1 file** `.docx` |
-| 2 | `/dashboard/review/[id]` | Workspace giống tab AI Review: **Chat với AI** + xem/chỉnh tài liệu (Accept/Undo, diff, insight) |
-| 3 | (Tuỳ chọn) | **Chi tiết HĐ** → `/dashboard/contracts/[id]` nếu cần Submit duyệt / intake đầy đủ |
+| 2 | `/dashboard/review/[id]` | Workspace: **Chat với AI** + xem/chỉnh tài liệu (Accept/Undo, diff, insight) → **kết thúc** |
+| — | Muốn duyệt / trình ký | Dùng **Tạo tài liệu** (`/dashboard/contracts/new`) + luồng Submit → Manager → Legal → wizard ký |
 
-- Intake còn lại (Công ty, số tài liệu, …) hệ thống **điền mặc định** từ Form lists khi tạo ticket.
+- Intake còn lại (Công ty, số tài liệu, …) hệ thống **điền mặc định** khi tạo ticket review.
 - Checklist AI theo loại giá trị HĐ mặc định (loại published có checklist).
 
 ## Luồng người dùng
 
-1. **Khởi tạo** — (A) **Tạo tài liệu** full form, hoặc (B) **Review hợp đồng** (Loại + Tên HĐ + upload). Số tài liệu tự sinh khi đủ Công ty + Loại hợp đồng  
-   - HĐ khung: đối chiếu template → không khớp thì **chặn** (fail-fast)  
+1. **Khởi tạo** — **Tạo tài liệu** full form (để duyệt/eContract), hoặc **Review hợp đồng** (chỉ AI review). Số tài liệu tự sinh khi đủ Công ty + Loại hợp đồng  
    - HĐ NCC/khác: quét vùng mở theo thứ tự **Range Permission** (`w:permStart`/`w:permEnd`) → Content Control → Legacy Form Field
 2. **AI xử lý** — Processing Queue; đề xuất **Loại A** (vùng mở) / **Loại B** (vùng khoá)
-3. **Workspace AI** — Chat | tài liệu reviewed (% tin cậy + diff) — dùng chung cho luồng tạo HĐ và **Review hợp đồng**  
+3. **Workspace AI** — Chat | tài liệu reviewed (% tin cậy + diff) — PT1 Chat thuộc Sprint 1; **PT2/PT3 ngoài phạm vi**  
    - Loại A: undo/accept từng dòng hoặc cả file  
    - Loại B: chỉ cảnh báo/annotation (không ghi đè)  
    - Chat cập nhật diff realtime; badge % tin cậy mở popup phân tích  
-   - Sửa trực tiếp inline (Phương thức 2 — chỉ vùng mở); panel comment 2 chiều  
-   - **Lưu thủ công (Mục 4.3):** không autosave; cảnh báo khi thoát còn thay đổi chưa lưu (Lưu / Thoát không lưu / Huỷ); phải lưu xong mới submit được
-4. **Gửi duyệt** — Submit → Task Manager (nếu có Line Manager) rồi Legal (**không** bắt buộc marker ở bước này)  
-   - Reject → Structured Feedback → chỉnh sửa → resubmit (version mới)  
-   - Legal Approve → resolve **ma trận Phân quyền ký** (xem xét + ký chính bên mua theo Công ty × Loại HĐ × giá trị) → `pending_markers` + Task về **người tạo**
+4. **Gửi duyệt** (chỉ luồng Tạo tài liệu) — Submit → Task Manager (nếu có Line Manager) rồi Legal (**không** bắt buộc marker ở bước này)  
+   - Reject → chỉnh sửa → resubmit (version mới); UI TH1/TH2/TH3 chi tiết **ngoài phạm vi** Sprint 1  
+   - Legal Approve → resolve **ma trận Phân quyền ký** → `pending_markers` + Task về **người tạo**
 5. **Gán chữ ký (wizard 2 bước sau Legal)** — xem mục chuyên sâu bên dưới
 
 ## Xác định người ký & gán marker (sau Legal approve)
@@ -278,11 +275,18 @@ Stack: **Next.js 14 (App Router) + TypeScript + Tailwind + shadcn/ui (Radix)** �
 ### Chạy local
 
 ```bash
+# Terminal 1 — Backend (eContract push, system-prompts, reupload)
+cd backend
+cp .env.example .env          # điền ECONTRACT_CLIENT_ID / SECRET
+npm install && npm run dev    # http://localhost:8000
+
+# Terminal 2 — Frontend
 cd frontend
-cp .env.example .env.local   # mặc định NEXT_PUBLIC_USE_MOCK=true
-npm install
-npm run dev                  # http://localhost:3001
+cp .env.example .env.local    # NEXT_PUBLIC_USE_MOCK=true
+npm install && npm run dev    # http://localhost:3001
 ```
+
+Next rewrite `/api/*` → `http://localhost:8000` (`API_REWRITE_URL`). Cần **backend chạy** khi Submit eContract / sửa System prompts / API reupload.
 
 Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv)
 
@@ -292,8 +296,8 @@ Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://loc
 |-------|--------|
 | `/login` | Purchasing / Manager / Legal / **IT** (đổi mật khẩu trên cùng trang) |
 | `/dashboard` | Danh sách hợp đồng |
-| `/dashboard/review` | **Review hợp đồng**: Loại HĐ + Tên HĐ (bắt buộc) + upload `.docx` |
-| `/dashboard/review/[id]` | Workspace AI Review nhanh (chat + tài liệu) |
+| `/dashboard/review` | **Review hợp đồng**: Loại HĐ + Tên HĐ + upload `.docx` (**chỉ AI review**) |
+| `/dashboard/review/[id]` | Workspace AI Review — kết thúc tại đây (không Submit duyệt) |
 | `/dashboard/contracts/new` | Tạo tài liệu: form Form lists đầy đủ + upload **1 file** `.docx` |
 | `/dashboard/contracts/[id]` | Queue → workspace Chat + Word (diff) → Submit duyệt |
 | `/dashboard/contracts/[id]/identify-signers` | Sau Legal: xác định người ký (trái mua / phải đối tác · nhiều bên) |
@@ -304,7 +308,7 @@ Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://loc
 | `/dashboard/configurations` | **Form lists** · **Phân quyền ký** · **System prompts** |
 | `/dashboard/users` | Users + Line Manager + tick phân quyền hạng mục |
 
-Mock: `NEXT_PUBLIC_USE_MOCK=true`. Khi có BE: `NEXT_PUBLIC_USE_MOCK=false` + `NEXT_PUBLIC_API_URL`.
+Mock: `NEXT_PUBLIC_USE_MOCK=true`. Khi có BE đầy đủ: `NEXT_PUBLIC_USE_MOCK=false` + `NEXT_PUBLIC_API_URL`. Các API server-only (eContract / prompts / reupload) luôn qua folder **`backend/`** (port 8000).
 
 ### Tài liệu yêu cầu trong repo
 

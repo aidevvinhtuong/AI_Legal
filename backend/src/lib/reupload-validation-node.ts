@@ -7,7 +7,7 @@ import fs from "fs/promises";
 import {
   validateReuploadFromBuffers,
   type ReuploadValidationResult,
-} from "@/lib/reupload-validation";
+} from "./reupload-validation";
 
 async function loadBufferFromPath(filePath: string): Promise<ArrayBuffer> {
   const buf = await fs.readFile(filePath);

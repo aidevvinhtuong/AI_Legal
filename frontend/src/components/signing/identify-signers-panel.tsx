@@ -570,6 +570,16 @@ function RecipientCard({
             className="h-8"
           />
         </div>
+        <div className="w-32 space-y-1">
+          <Label className="text-[11px]">Mã LH (contactId)</Label>
+          <Input
+            value={recipient.contactId || ""}
+            disabled={readOnly}
+            onChange={(e) => onChange({ contactId: e.target.value })}
+            placeholder="Tự sinh nếu trống"
+            className="h-8"
+          />
+        </div>
         {!readOnly && (
           <Button
             type="button"
