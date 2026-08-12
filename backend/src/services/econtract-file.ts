@@ -4,8 +4,8 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import JSZip from "jszip";
-import type { SignRecipient } from "@/lib/types";
-import { buildMarkerSyntax, recipientNeedsMarker } from "@/lib/econtract-flow";
+import type { SignRecipient } from "../lib/types";
+import { buildMarkerSyntax, recipientNeedsMarker } from "../lib/econtract-flow";
 
 const execFileAsync = promisify(execFile);
 

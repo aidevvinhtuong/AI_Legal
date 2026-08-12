@@ -24,7 +24,7 @@ import {
 } from "@/lib/review-service";
 import { canAccessContractsList, canCreateContracts } from "@/lib/roles";
 import type { ContractReview } from "@/lib/types";
-import { ArrowLeft, Loader2, Sparkles, Upload } from "lucide-react";
+import { Loader2, Sparkles, Upload } from "lucide-react";
 import Link from "next/link";
 
 export default function QuickReviewWorkspacePage() {
@@ -120,12 +120,6 @@ export default function QuickReviewWorkspacePage() {
                 Upload mới
               </Link>
             </Button>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href={`/dashboard/contracts/${review.id}`}>
-                <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
-                Chi tiết HĐ
-              </Link>
-            </Button>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-sky-600 shrink-0" />
@@ -135,10 +129,11 @@ export default function QuickReviewWorkspacePage() {
                 <StatusBadge status={review.status} />
               </div>
               <p className="text-xs text-muted-foreground truncate">
-                {review.fileName}
+                Chỉ AI review — không Submit duyệt / eContract
                 {review.contractTypeLabel
                   ? ` · ${review.contractTypeLabel}`
                   : ""}
+                {review.fileName ? ` · ${review.fileName}` : ""}
               </p>
             </div>
           </div>

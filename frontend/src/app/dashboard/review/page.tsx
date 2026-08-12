@@ -152,8 +152,8 @@ export default function QuickReviewUploadPage() {
             Review hợp đồng
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Chọn Loại hợp đồng + Tên hợp đồng, tải file .docx — hệ thống chạy AI
-            review và mở workspace (chat + tài liệu).
+            Chỉ AI review — không Submit duyệt / eContract. Muốn trình ký hãy dùng
+            Tạo tài liệu.
           </p>
         </div>
 
