@@ -1,4 +1,4 @@
-import { api, USE_MOCK } from "@/lib/api";
+import { api, ECONTRACT_LIVE, USE_MOCK } from "@/lib/api";
 import {
   loadFormLists,
   type CodeLabelOption,
@@ -129,7 +129,9 @@ export async function loginAs(role: UserRole): Promise<UserSession> {
     }
     return user;
   }
-  const user = (await api.post("/api/auth/login", { role })) as UserSession;
+  const user = (await api.post("/api/auth/login", { role }, {
+    skipAuthRedirect: true,
+  })) as UserSession;
   setSession(user);
   return user;
 }
@@ -153,10 +155,11 @@ export async function loginWithCredentials(
     setEcontractUserLogin(account.username, password);
     return session;
   }
-  const user = (await api.post("/api/auth/login", {
-    username,
-    password,
-  })) as UserSession;
+  const user = (await api.post(
+    "/api/auth/login",
+    { username, password },
+    { skipAuthRedirect: true }
+  )) as UserSession;
   setSession(user);
   setEcontractUserLogin(username, password);
   return user;
@@ -1207,7 +1210,9 @@ export async function saveSigningRecipients(
 }
 
 /**
- * Người tạo hoàn tất kéo-thả marker → Word+marker → PDF → base64 → POST FPT.eContract.
+ * Người tạo hoàn tất kéo-thả marker → đẩy eContract.
+ * - USE_MOCK && !ECONTRACT_LIVE: giả lập sync (không cần BE).
+ * - Ngược lại: POST /api/econtract/push (BE).
  */
 export async function completeMarkersAndPushEcontract(
   id: string
@@ -1222,6 +1227,35 @@ export async function completeMarkersAndPushEcontract(
   const { assertSigningMatrixReady } = await import("@/lib/config-service");
   assertSigningMatrixReady(review);
 
+  const useLivePush = !USE_MOCK || ECONTRACT_LIVE;
+
+  if (!useLivePush) {
+    await delay(600);
+    const latest = getReview(id);
+    if (!latest) throw new Error("Not found");
+    latest.status = "syncing_econtract";
+    latest.econtract = {
+      envelopeId: `MOCK-ENV-${Date.now()}`,
+      envStatus: "Processing",
+      code: 0,
+      message: "Mock push — bật NEXT_PUBLIC_ECONTRACT_LIVE=true để gọi BE thật",
+      pushedAt: new Date().toISOString(),
+      fileMode: "pdf",
+    };
+    latest.updatedAt = new Date().toISOString();
+    upsertReview(latest);
+    setTimeout(() => {
+      const r = getReview(id);
+      if (r && r.status === "syncing_econtract") {
+        r.status = "signed";
+        if (r.econtract) r.econtract.envStatus = "Completed";
+        r.updatedAt = new Date().toISOString();
+        upsertReview(r);
+      }
+    }, 2500);
+    return latest;
+  }
+
   const login = getEcontractUserLogin();
   if (!login) {
     throw new Error(
@@ -1229,48 +1263,45 @@ export async function completeMarkersAndPushEcontract(
     );
   }
 
-  // Backend Express (:8000) qua Next rewrite /api/* — login FPT + convert + excall
-  const res = await fetch("/api/econtract/push", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      reviewId: id,
-      review,
-      username: login.username,
-      password: login.password,
-    }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.message || data.error || "Đẩy eContract thất bại");
+  const data = (await api.post("/api/econtract/push", {
+    reviewId: id,
+    review,
+    username: login.username,
+    password: login.password,
+  })) as {
+    ok?: boolean;
+    message?: string;
+    econtract?: ContractReview["econtract"];
+    review?: ContractReview;
+  };
+
+  if (data.ok === false) {
+    throw new Error(data.message || "Đẩy eContract thất bại");
   }
 
   if (USE_MOCK) {
     const latest = getReview(id);
     if (!latest) throw new Error("Not found");
-    latest.status =
-      data.ok === false ? "pending_markers" : "syncing_econtract";
+    latest.status = "syncing_econtract";
     latest.econtract = data.econtract;
     latest.updatedAt = new Date().toISOString();
-    if (data.ok !== false && data.econtract?.envelopeId) {
-      // Giữ syncing; callback thật sẽ chuyển signed — demo: signed sau vài giây nếu FPT ok
+    if (data.econtract?.envelopeId) {
       setTimeout(() => {
         const r = getReview(id);
         if (r && r.status === "syncing_econtract") {
           r.status = "signed";
+          if (r.econtract) r.econtract.envStatus = "Completed";
           r.updatedAt = new Date().toISOString();
-          if (r.econtract) r.econtract.envStatus = "Processing";
           upsertReview(r);
         }
       }, 3000);
     }
     upsertReview(latest);
-    if (data.ok === false) {
-      throw new Error(data.message || "eContract từ chối request");
-    }
     return latest;
   }
-  return data.review as ContractReview;
+
+  if (data.review) return data.review;
+  return getReviewById(id);
 }
 
 /** Gán marker bằng kéo-thả (trang + tọa độ %). */

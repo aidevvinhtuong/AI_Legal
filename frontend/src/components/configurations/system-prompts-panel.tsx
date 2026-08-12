@@ -6,16 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
 import type { PipelineStage } from "@/lib/system-prompts/constants";
+import {
+  fetchSystemPrompts,
+  updateSystemPrompt,
+  type SystemPromptSnapshot,
+} from "@/lib/system-prompts-service";
 import { ChevronDown, Loader2, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface SystemPromptSnapshot {
-  stage: PipelineStage;
-  currentFile: string;
-  content: string;
-  placeholders: string[];
-  versions: string[];
-}
 
 const STAGE_LABELS: Record<PipelineStage, string> = {
   checklist_review: "Checklist review (first-pass)",
@@ -63,22 +60,19 @@ export function SystemPromptsPanel() {
   >({});
 
   useEffect(() => {
-    fetch("/api/system-prompts")
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Lỗi tải prompts");
-        const list = (data.prompts || []) as SystemPromptSnapshot[];
+    fetchSystemPrompts()
+      .then((list) => {
         setPrompts(list);
         const initial: Partial<Record<PipelineStage, string>> = {};
         for (const p of list) {
           initial[p.stage] = p.content;
         }
         setDrafts(initial);
-        setOpenPanels({}); // mặc định thu gọn — chỉ hiện title
+        setOpenPanels({});
       })
       .catch((e) =>
         toast({
-          title: "Không đọc được /prompts",
+          title: "Không đọc được system prompts",
           description: e instanceof Error ? e.message : "Lỗi",
           variant: "destructive",
         })
@@ -94,14 +88,7 @@ export function SystemPromptsPanel() {
   const handleSave = async (stage: PipelineStage) => {
     setSavingStage(stage);
     try {
-      const res = await fetch("/api/system-prompts", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stage, content: drafts[stage] ?? "" }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Lưu thất bại");
-      const saved = data.prompt as SystemPromptSnapshot;
+      const saved = await updateSystemPrompt(stage, drafts[stage] ?? "");
       setPrompts((prev) =>
         prev.map((p) => (p.stage === saved.stage ? saved : p))
       );
@@ -133,7 +120,8 @@ export function SystemPromptsPanel() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Prompt theo stage pipeline (file Git <code className="text-xs">/prompts</code>
+        Prompt theo stage pipeline (file Git{" "}
+        <code className="text-xs">/prompts</code>
         ). Không hardcode điều khoản Legal.
       </p>
       {prompts.map((prompt) => {
@@ -148,86 +136,102 @@ export function SystemPromptsPanel() {
           <div key={stage} className="rounded-lg border bg-white shadow-sm">
             <button
               type="button"
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
               onClick={() =>
-                setOpenPanels((prev) => ({
-                  ...prev,
-                  [stage]: !panelOpen,
-                }))
+                setOpenPanels((prev) => ({ ...prev, [stage]: !prev[stage] }))
               }
-              className="flex w-full items-center justify-between gap-3 px-5 py-3.5 text-left"
-              aria-expanded={panelOpen}
             >
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold">
-                  {STAGE_LABELS[stage]}
-                </h2>
+                <span className="font-medium">{STAGE_LABELS[stage]}</span>
+                <Badge variant="secondary" className="font-mono text-[10px]">
+                  {prompt.currentFile}
+                </Badge>
                 {dirty && (
-                  <Badge variant="secondary" className="text-[11px]">
+                  <Badge variant="outline" className="text-[10px] text-amber-700">
                     Chưa lưu
                   </Badge>
                 )}
               </div>
               <ChevronDown
                 className={cn(
-                  "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                  "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
                   panelOpen && "rotate-180"
                 )}
               />
             </button>
 
             {panelOpen && (
-              <div className="space-y-4 border-t px-5 py-4">
-                <dl className="grid gap-1.5 text-sm text-muted-foreground sm:grid-cols-[5.5rem_1fr]">
-                  <dt className="font-medium text-foreground/80">Input</dt>
-                  <dd>{STAGE_META[stage].input}</dd>
-                  <dt className="font-medium text-foreground/80">Output</dt>
-                  <dd>{STAGE_META[stage].output}</dd>
-                  <dt className="font-medium text-foreground/80">Kích hoạt</dt>
-                  <dd>{STAGE_META[stage].when}</dd>
-                </dl>
+              <div className="space-y-3 border-t px-4 py-4">
+                <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-3">
+                  <p>
+                    <span className="font-medium text-foreground">Khi: </span>
+                    {STAGE_META[stage].when}
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">Input: </span>
+                    {STAGE_META[stage].input}
+                  </p>
+                  <p>
+                    <span className="font-medium text-foreground">Output: </span>
+                    {STAGE_META[stage].output}
+                  </p>
+                </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <Label htmlFor={`template-${stage}`}>Instruction</Label>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedTemplates((prev) => ({
-                          ...prev,
-                          [stage]: !templateExpanded,
-                        }))
-                      }
-                      className="text-xs font-medium text-muted-foreground hover:text-foreground"
-                    >
-                      {templateExpanded ? "Thu gọn" : "Mở rộng"}
-                    </button>
-                  </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor={`prompt-${stage}`}>Nội dung prompt</Label>
                   <textarea
-                    id={`template-${stage}`}
+                    id={`prompt-${stage}`}
+                    className="min-h-[180px] w-full rounded-md border bg-background px-3 py-2 font-mono text-xs leading-relaxed"
                     value={draft}
-                    rows={14}
                     onChange={(e) =>
                       setDrafts((prev) => ({
                         ...prev,
                         [stage]: e.target.value,
                       }))
                     }
-                    spellCheck={false}
-                    className={cn(
-                      "w-full rounded-md border border-input bg-white px-3 py-2",
-                      "font-mono text-sm leading-relaxed text-foreground",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      templateExpanded
-                        ? "min-h-[min(70vh,560px)] resize-y"
-                        : "min-h-[280px] resize-y"
-                    )}
-                    aria-label={`Prompt template ${stage}`}
                   />
                 </div>
 
-                <div className="flex justify-end pt-1">
+                {prompt.placeholders.length > 0 && (
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() =>
+                        setExpandedTemplates((prev) => ({
+                          ...prev,
+                          [stage]: !prev[stage],
+                        }))
+                      }
+                    >
+                      Placeholders ({prompt.placeholders.length})
+                      <ChevronDown
+                        className={cn(
+                          "h-3 w-3 transition-transform",
+                          templateExpanded && "rotate-180"
+                        )}
+                      />
+                    </button>
+                    {templateExpanded && (
+                      <ul className="flex flex-wrap gap-1.5">
+                        {prompt.placeholders.map((ph) => (
+                          <li key={ph}>
+                            <Badge
+                              variant="outline"
+                              className="font-mono text-[10px]"
+                            >
+                              {ph}
+                            </Badge>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex justify-end">
                   <Button
-                    type="button"
+                    size="sm"
                     disabled={!dirty || saving}
                     onClick={() => handleSave(stage)}
                   >
@@ -236,7 +240,7 @@ export function SystemPromptsPanel() {
                     ) : (
                       <Save className="mr-2 h-4 w-4" />
                     )}
-                    Save Prompt
+                    Lưu
                   </Button>
                 </div>
               </div>
