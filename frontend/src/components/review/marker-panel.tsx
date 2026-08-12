@@ -22,7 +22,14 @@ import {
   buildMarkerSyntax,
   recipientNeedsMarker,
 } from "@/lib/review-service";
-import { Building2, ChevronDown, ChevronRight, Eye, MapPin } from "lucide-react";
+import {
+  Building2,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  MapPin,
+  Users,
+} from "lucide-react";
 
 const POSITIONS = [
   "Cuối trang chữ ký — Bên A",
@@ -62,15 +69,22 @@ function RecipientCard({
             {isText ? `st → r:${r.refRecipientId ?? "?"}` : r.id}
           </div>
         </div>
-        {!needsMarker ? (
-          <Badge variant="secondary" className="gap-1">
-            <Eye className="h-3 w-3" /> Reviewer
-          </Badge>
-        ) : r.marker ? (
-          <Badge>Đã gán</Badge>
-        ) : (
-          <Badge variant="outline">Thiếu marker</Badge>
-        )}
+        <div className="flex flex-wrap items-center justify-end gap-1">
+          {r.signingMatrixBandLabel && (
+            <Badge variant="outline" className="text-[10px]">
+              Từ ma trận · {r.signingMatrixBandLabel}
+            </Badge>
+          )}
+          {!needsMarker ? (
+            <Badge variant="secondary" className="gap-1">
+              <Eye className="h-3 w-3" /> Reviewer
+            </Badge>
+          ) : r.marker ? (
+            <Badge>Đã gán</Badge>
+          ) : (
+            <Badge variant="outline">Thiếu marker</Badge>
+          )}
+        </div>
       </div>
 
       {!isText && (
@@ -158,6 +172,8 @@ export function MarkerPanel({
   recipients,
   onAssign,
   onUpdateRecipient,
+  onApplySigningMatrix,
+  applyingMatrix,
   errors,
   readOnly,
 }: {
@@ -168,10 +184,18 @@ export function MarkerPanel({
     recipientId: string,
     patch: Partial<SignRecipient>
   ) => void;
+  /** Áp dụng ma trận ký theo Loại HĐ cha + Giá trị intake. */
+  onApplySigningMatrix?: () => void | Promise<void>;
+  applyingMatrix?: boolean;
   errors: string[];
   readOnly?: boolean;
 }) {
   const [showPayload, setShowPayload] = useState(false);
+  const canApplyMatrix =
+    !readOnly &&
+    !!onApplySigningMatrix &&
+    !!review?.intake?.documentCategoryId &&
+    !!review?.intake?.contractValue;
 
   const parties = useMemo(() => {
     const map = new Map<
@@ -200,15 +224,28 @@ export function MarkerPanel({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-sm font-semibold">
-          Gán marker ký số (bắt buộc trước Legal)
-        </h3>
-        <p className="text-xs text-muted-foreground mt-1">
-          Cú pháp FPT.eContract: <code>#ds:id r:p_001_r_001 h:100 #</code> —
-          khoảng cách <code>#…#</code> là chiều rộng ô ký; hệ thống sinh marker,
-          không cần gõ tay. Người xem xét (reviewer) không có marker.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold">
+            Người ký / xem xét (tham chiếu — kéo-thả vị trí sau Legal duyệt)
+          </h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Cú pháp FPT.eContract: <code>#ds:id r:p_001_r_001 h:100 #</code> —
+            khoảng cách <code>#…#</code> là chiều rộng ô ký; hệ thống sinh
+            marker, không cần gõ tay. Người xem xét (reviewer) không có marker.
+          </p>
+        </div>
+        {canApplyMatrix && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={applyingMatrix}
+            onClick={() => void onApplySigningMatrix?.()}
+          >
+            <Users className="h-3.5 w-3.5 mr-1" />
+            {applyingMatrix ? "Đang áp dụng…" : "Áp dụng ma trận ký"}
+          </Button>
+        )}
       </div>
 
       {errors.length > 0 && (

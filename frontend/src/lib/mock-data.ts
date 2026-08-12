@@ -734,6 +734,100 @@ const seedReviews: ContractReview[] = [
       },
     ],
   }),
+  /**
+   * Demo Task — Chờ gán chữ ký sau Legal duyệt
+   * (login: van.a / demo123 → Task → Gán chữ ký)
+   */
+  createMockReview({
+    id: "rev_task_markers_1",
+    code: "SGVN.HQP.260099",
+    title: "HĐ Tour Du lịch — chờ gán chữ ký",
+    ownerId: "usr_purchasing_a",
+    ownerName: "Nguyễn Văn A",
+    status: "pending_markers",
+    confidence: 84,
+    fileName: "HD_Tour_DuLich_DaDuyet.docx",
+    fileNames: ["HD_Tour_DuLich_DaDuyet.docx"],
+    originalDocxUrl: SAMPLE_DOCX,
+    reviewedDocxUrl: SAMPLE_DOCX,
+    createdAt: "2026-08-10T08:00:00.000Z",
+    updatedAt: "2026-08-12T04:00:00.000Z",
+    version: 2,
+    versionHistory: [
+      {
+        version: 1,
+        action: "submit_legal",
+        actorRole: "purchasing",
+        actorName: "Nguyễn Văn A",
+        label: "Purchasing submit duyệt",
+        createdAt: "2026-08-10T08:00:00.000Z",
+        fileName: "HD_Tour_DuLich_DaDuyet.docx",
+        reviewedText: SAMPLE_REVIEWED,
+      },
+      {
+        version: 2,
+        action: "resubmit",
+        actorRole: "legal",
+        actorName: "Trần Thị Legal",
+        label: "Legal đã duyệt — chờ gán chữ ký",
+        createdAt: "2026-08-12T04:00:00.000Z",
+        fileName: "HD_Tour_DuLich_DaDuyet.docx",
+        reviewedText: SAMPLE_REVIEWED,
+      },
+    ],
+    intake: {
+      documentCategoryId: "hqp",
+      documentCategoryLabel: "HQP",
+      documentName: "HĐ Tour Du lịch — chờ gán chữ ký",
+      documentNumber: "SGVN.HQP.260099",
+      signingDate: "2026-08-20",
+      contractNameId: "cn_hqp_hqp_tour",
+      contractNameLabel: "Tour Du lịch",
+      businessEntityId: "be_sgvn",
+      businessEntityLabel: "Saint-Gobain Vietnam",
+      contractBaseId: "cb_framework",
+      contractBaseLabel: "Framework agreement",
+      hasDiscount: "no",
+      discountDetails: "",
+      contractValue: "750.000.000",
+    },
+    /**
+     * Chỉ bên mua (ma trận). Người tạo thêm bên bán qua «Thêm bên ký»,
+     * rồi sang thiết kế để gán marker cho Ký chính + Văn thư.
+     */
+    recipients: [
+      {
+        id: "p_001_r_001",
+        name: "Trần Thị Legal",
+        role: "company",
+        partyId: "p_001",
+        orgName: "CÔNG TY TNHH SAINT-GOBAIN VIỆT NAM",
+        isMyOrg: true,
+        order: 1,
+        email: "legal@saint-gobain.com",
+        phone: "0901000003",
+        ecRole: "reviewer",
+        signType: "review",
+        markerType: "ds",
+        signingMatrixBandLabel: "≤ 1 tỷ",
+      },
+      {
+        id: "p_001_r_002",
+        name: "Lê Thị Manager",
+        role: "company",
+        partyId: "p_001",
+        orgName: "CÔNG TY TNHH SAINT-GOBAIN VIỆT NAM",
+        isMyOrg: true,
+        order: 2,
+        email: "manager.pur@saint-gobain.com",
+        phone: "0901000001",
+        ecRole: "signer",
+        signType: "sign_fca.passcode",
+        markerType: "ds",
+        signingMatrixBandLabel: "≤ 1 tỷ",
+      },
+    ],
+  }),
   createMockReview({
     id: "rev_demo_draft_hddv",
     code: "",
@@ -927,7 +1021,7 @@ const seedReviews: ContractReview[] = [
   }),
 ];
 
-const STORAGE_KEY = "ai_econtract_reviews_v27";
+const STORAGE_KEY = "ai_econtract_reviews_v29";
 
 const seededReviews: ContractReview[] = seedReviews.map((r, i) =>
   ensureVersionHistory({
@@ -945,7 +1039,9 @@ const seededReviews: ContractReview[] = seedReviews.map((r, i) =>
 function ensureVersionHistory(r: ContractReview): ContractReview {
   if (r.versionHistory?.length) return r;
   const submittedStatuses = [
+    "pending_manager",
     "pending_legal",
+    "pending_markers",
     "rejected",
     "syncing_econtract",
     "signed",
@@ -1022,8 +1118,13 @@ export function loadReviews(): ContractReview[] {
   try {
     const parsed = JSON.parse(raw) as ContractReview[];
     const neededIds = parsed.some((r) => !parseDocumentId(r.documentId));
-    const list = ensureDocumentIds(parsed.map(ensureInsight));
-    if (neededIds) {
+    let list = ensureDocumentIds(parsed.map(ensureInsight));
+    // Đảm bảo demo task chờ gán chữ ký luôn có (kể cả LS cũ sau bump key).
+    const markerDemo = seededReviews.find((r) => r.id === "rev_task_markers_1");
+    if (markerDemo && !list.some((r) => r.id === "rev_task_markers_1")) {
+      list = [ensureInsight(markerDemo), ...list];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    } else if (neededIds) {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
     }
     syncDocSeqFromReviews(list);

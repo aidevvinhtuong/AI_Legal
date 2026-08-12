@@ -1,4 +1,4 @@
-import type { ContractGroup } from "@/lib/types";
+import type { ContractGroup, EcontractSignType } from "@/lib/types";
 
 /** Vòng đời cấu hình (checklist / Approval Matrix) — dùng ở màn chi tiết. */
 export type ConfigLifecycle = "draft" | "published" | "archived";
@@ -119,6 +119,36 @@ export interface ApprovalMatrixConfig {
   publishedBy?: string;
 }
 
+/** Vai trò trong luồng ký eContract (map API parties.recipients.role). */
+export type SigningSlotRole = "reviewer" | "signer";
+
+/**
+ * Một dòng ma trận phân quyền ký (bảng phẳng).
+ * Điều kiện: Công ty (nhiều) × Loại HĐ × [min, max] giá trị → người + quyền.
+ */
+export interface SigningAuthorityRule {
+  id: string;
+  /** Công ty (Form lists businessEntities) — chọn nhiều. */
+  businessEntityIds: string[];
+  /** Loại hợp đồng cha (documentCategories.id). */
+  documentCategoryId: string;
+  /** Giá trị min (VND), inclusive. */
+  minValue: number;
+  /** Giá trị max (VND), inclusive. null = không trần. */
+  maxValue: number | null;
+  /** Xem xét = reviewer · Ký chính = signer. */
+  ecRole: SigningSlotRole;
+  /** User hệ thống được gán. */
+  userId: string;
+  personalName: string;
+  email: string;
+  telephoneNumber?: string;
+  /** Hình thức ký khi ecRole = signer (mặc định passcode). */
+  signType?: EcontractSignType;
+  /** Thứ tự trong cùng nhóm quyền khi resolve. */
+  order: number;
+}
+
 /**
  * Lớp cấu hình:
  * - parent: gắn Loại hợp đồng (documentCategories.id) — mọi Tên HĐ con được hưởng.
@@ -192,6 +222,7 @@ export type ConfigAuditAction =
   | "remove_clause"
   | "update_meta"
   | "link_matrix"
+  | "save_signing_matrix"
   | "test_preview"
   | "publish"
   | "archive"

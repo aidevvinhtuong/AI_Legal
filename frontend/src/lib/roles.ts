@@ -39,12 +39,13 @@ export function canAccessConfig(input?: RoleOrSession): boolean {
   return check(input, "contract_config");
 }
 
-/** Configurations — Form lists và/hoặc System prompts. */
+/** Configurations — Form lists, System prompts và/hoặc Phân quyền ký. */
 export function canAccessConfigurations(input?: RoleOrSession): boolean {
   const { permissions } = asSession(input);
   return (
     hasPermission(permissions, "form_lists") ||
-    hasPermission(permissions, "system_prompts")
+    hasPermission(permissions, "system_prompts") ||
+    hasPermission(permissions, "contract_config")
   );
 }
 

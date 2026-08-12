@@ -62,20 +62,22 @@ Môi trường: Demo `https://demo.econtract.fpt.com/app` · Production `https:/
 ```mermaid
 sequenceDiagram
     participant P as Purchasing (FE)
-    participant BE as Backend AI Legal
+    participant BE as Backend / Next API
     participant EC as FPT.eContract
 
-    P->>P: Gán marker (UI MarkerPanel)<br/>validate client theo bảng lỗi
-    P->>BE: Gửi Legal duyệt (chặn nếu marker lỗi)
-    Note over BE: Legal approve
-    BE->>BE: Chèn marker mực trắng vào .docx<br/>validate server lần 2
+    Note over P: Legal đã approve → pending_markers
+    P->>P: Task · Gán chữ ký
+    P->>P: Bước 1 identify-signers<br/>ma trận mua + Thêm bên ký đối tác
+    P->>P: Bước 2 design-markers<br/>kéo-thả (Ký chính + Văn thư)
+    P->>BE: POST /api/econtract/push
+    BE->>BE: Chèn marker mực trắng vào .docx
+    BE->>BE: Convert PDF (LibreOffice) → Base64
     BE->>EC: Login lấy token
-    BE->>EC: Khởi tạo HĐ (excall, file Base64 + parties)
+    BE->>EC: excall tạo HĐ (file + parties)
     EC-->>BE: envelopeId + link ký người đầu
-    BE->>BE: status = syncing_econtract, lưu envelopeId
-    EC-->>BE: Callback Recipient_finished (từng người ký)
-    EC-->>BE: Callback Flow_finished + file hoàn thành
-    BE->>BE: status = signed, lưu file ký vào version history
+    BE->>BE: status = syncing_econtract, lưu econtract
+    EC-->>BE: Callback Recipient_finished / Flow_finished
+    BE->>BE: status = signed
 ```
 
 ### 2.2. Mapping dữ liệu AI Legal → eContract
@@ -93,19 +95,43 @@ sequenceDiagram
 | `SignRecipient.marker` | marker chèn trong file | id duy nhất, h, mực trắng |
 | `review.status: syncing_econtract → signed` | `envStatus: Processing → Completed` | thêm map `Rejected/Voided/Overdue` — xem mục 4 |
 
-### 2.3. Đã code trên FE demo (commit này)
+### 2.2b. Bảng phân quyền ký (Signing Authority Rules)
+
+Bảng phẳng **không** thay luồng nội bộ Manager → Legal. Chỉ quyết định người đẩy sang eContract (`parties` phía `isMyOrg`).
+
+| Cột UI | Resolve | eContract |
+|--------|---------|-----------|
+| Công ty (multi) | `intake.businessEntityId` ∈ `businessEntityIds` | party `isMyOrg` |
+| Loại hợp đồng | `intake.documentCategoryId` | — |
+| Giá trị min / max | `minValue ≤ contractValue ≤ maxValue` (`max` null = ∞) | — |
+| Quyền: Xem xét / Ký chính | `ecRole: reviewer \| signer` | `role` + marker rules |
+| Người (user list) | `userId` → name/email/phone | `recipients[]` |
+
+**Luồng cấu hình:** `/dashboard/configurations?tab=signing` (tab **Phân quyền ký** trong Thiết lập).
+
+**Luồng runtime (đã chốt):** Legal approve → resolve ma trận (xem xét + ký chính bên mua) → `pending_markers` → Task người tạo **Gán chữ ký** → wizard:
+
+1. **Xác định người ký** (`/identify-signers`) — layout 2 cột: trái bên mua (auto ma trận, tên org read-only, thêm/sửa/xóa người; không Điều phối); phải bên đối tác (**Thêm bên ký** nhiều bên, bắt buộc Tổ chức|Cá nhân, đủ 5 role). Stepper: `1. Xem chi tiết` · `2. Xác định người ký` · `3. Thiết kế` · `4. Xác nhận`. Chưa lưu → chặn chuyển trang.
+2. **Thiết kế** (`/design-markers`) — chỉ **Người ký** + **Văn thư** cần marker; panel phải: Người nhận + Mặc định/Lớn + X/Y + rộng/cao.
+3. **Submit** → chèn marker mực trắng vào Word → convert PDF (LibreOffice nếu có) → base64 → login + `excall` FPT → lưu `review.econtract`.
+
+Thứ tự ký: bên mua trước (`parties.order`), trong bên theo trên→dưới màn hình. `partyKind: individual` → `isOrg: false`.
+
+**Ảnh minh họa:** `docs/images/signing-flow/` (01–06).
+
+**Code:** `econtract-flow.ts`, `econtract-file.ts`, `IdentifySignersPanel`, `POST /api/econtract/push`; env `ECONTRACT_*` trong `.env.local`.
+
+### 2.3. Đã code trên FE demo
 
 | Hạng mục | File | Nội dung |
 |----------|------|----------|
-| Model recipient chuẩn eContract | `frontend/src/lib/types.ts` | `SignRecipient` thêm `partyId`, `orgName`, `isMyOrg`, `order`, `email`, `phone`, `ecRole`, `signType`, `refRecipientId`; type mới `EcontractSignType` |
-| Cú pháp marker đúng spec | `frontend/src/lib/review-service.ts` → `buildMarkerSyntax` | `#ds:id r:p_001_r_001 h:100 #` (marker `st` trỏ `refRecipientId`) |
-| Validate theo bảng mã lỗi FPT | `validateMarkers` | 8 luật: thiếu marker, trùng id, >1 marker chữ ký/người, sai loại vs hình thức ký, reviewer có marker, thiếu orgName/email/role, `st` không trỏ recipient, h ≤ 0 |
-| Mapping hình thức ký | `markerTypeForSignType`, `recipientNeedsMarker` | review → không marker; sign_img → is; passcode/eKYC → ds |
-| Sửa thông tin người ký | `updateRecipient` (mock + `PATCH /api/reviews/{id}/recipients/{rid}`) | đổi email/hình thức ký; đổi loại ký tự gỡ marker lệch loại |
-| Gán marker có chiều cao | `assignMarker(id, recipientId, positionLabel, height)` | default h:100 theo ví dụ tài liệu |
-| Dựng payload API khởi tạo HĐ | `buildEcontractPayload(review)` | đúng cấu trúc excall mục 3.1.2 (selector/lookup/body/parties) |
-| UI MarkerPanel mới | `frontend/src/components/review/marker-panel.tsx` | nhóm theo bên ký (party), sửa email + hình thức ký, nhập h, hiển thị cú pháp marker, cảnh báo mực trắng, **preview JSON payload eContract** |
-| Seed data chuẩn | `frontend/src/lib/mock-data.ts` | recipient dạng `p_001_r_001` với org/email/signType; marker st tham chiếu người ký thật; bump storage key v22 |
+| Role UI 5 loại | `types.ts` · `econtract-flow.ts` | coordinator / reviewer / signer / clerk / cc; `partyKind` Tổ chức\|Cá nhân |
+| Validate + order | `econtract-flow.ts` | `validateIdentifySigners` · `validateMarkers` · mua trước, trên→dưới |
+| Wizard bước 1 | `identify-signers/page.tsx` · `identify-signers-panel.tsx` | 2 cột; Thêm bên ký; lưu trước khi thoát |
+| Wizard bước 2 | `design-markers/page.tsx` | Kéo-thả; Người nhận; size; Submit |
+| File + API | `econtract-file.ts` · `api/econtract/push/route.ts` | Marker trắng → PDF → base64 → login + excall |
+| Ma trận ký | `config-service.ts` · Configurations tab signing | Resolve khi Legal approve / mở bước 1 |
+| Ảnh minh họa | `docs/images/signing-flow/` | 01–06 |
 
 ### 2.4. Backend phải làm (ngoài scope FE demo)
 

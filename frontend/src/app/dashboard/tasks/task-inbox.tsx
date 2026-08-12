@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChatPanel } from "@/components/review/chat-panel";
 import { ReviewedWordView } from "@/components/review/reviewed-word-view";
+import { StatusBadge } from "@/components/review/status-badge";
 import { useToast } from "@/components/ui/use-toast";
 import {
   IntakeFormFields,
@@ -185,19 +186,22 @@ export default function TaskInboxPage() {
     );
   }, [reviews, isManager, isIt, session]);
 
-  /** Task Purchasing: rejected của chính user (IT demo: mọi rejected). */
+  /** Task Purchasing: rejected + chờ gán chữ ký sau Legal (IT demo: mọi ticket). */
   const purchasingTasks = useMemo(() => {
     if (!isPurchasing || !session?.userId) return [];
+    const isOwner = (r: (typeof reviews)[0]) =>
+      r.ownerId === session.userId ||
+      (!r.ownerId &&
+        (r.ownerName.includes(session.name) ||
+          r.ownerName.includes(session.username)));
     if (isIt) {
-      return reviews.filter((r) => r.status === "rejected");
+      return reviews.filter(
+        (r) => r.status === "rejected" || r.status === "pending_markers"
+      );
     }
     return reviews.filter(
       (r) =>
-        r.status === "rejected" &&
-        (r.ownerId === session.userId ||
-          (!r.ownerId &&
-            (r.ownerName.includes(session.name) ||
-              r.ownerName.includes(session.username))))
+        (r.status === "rejected" || r.status === "pending_markers") && isOwner(r)
     );
   }, [reviews, isPurchasing, isIt, session]);
 
@@ -266,7 +270,7 @@ export default function TaskInboxPage() {
           title: decision === "approve" ? "Đã phê duyệt" : "Đã từ chối",
           description:
             decision === "approve"
-              ? "Hệ thống đang đồng bộ sang Econtract (mock)."
+              ? "Ticket gửi người tạo để kéo-thả vị trí chữ ký trước khi đẩy eContract."
               : "Ticket sẽ xuất hiện trong màn Task của Purchasing.",
         });
       }
@@ -425,8 +429,12 @@ export default function TaskInboxPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base">
-                  Bị từ chối — cần xử lý ({purchasingTasks.length})
+                  Task người tạo ({purchasingTasks.length})
                 </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Từ chối cần sửa lại, hoặc Legal đã duyệt — cần gán vị trí chữ
+                  ký.
+                </p>
               </CardHeader>
               <CardContent>
                 <div className="overflow-x-auto">
@@ -434,12 +442,14 @@ export default function TaskInboxPage() {
                     <thead>
                       <tr className="border-b text-left text-xs uppercase text-muted-foreground">
                         <th className="py-2.5 pr-4 font-medium">Name</th>
-                        <th className="py-2.5 w-32 font-medium">Action</th>
+                        <th className="py-2.5 pr-4 font-medium">Status</th>
+                        <th className="py-2.5 w-40 font-medium">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {purchasingTasks.map((r) => {
                         const name = taskNameLines(r);
+                        const isMarkers = r.status === "pending_markers";
                         return (
                         <tr
                           key={r.id}
@@ -456,15 +466,22 @@ export default function TaskInboxPage() {
                               )}
                             </div>
                           </td>
+                          <td className="py-3 pr-4">
+                            <StatusBadge status={r.status} />
+                          </td>
                           <td className="py-3">
                             <Button
                               size="sm"
                               onClick={() =>
-                                router.push(`/dashboard/contracts/${r.id}`)
+                                router.push(
+                                  isMarkers
+                                    ? `/dashboard/contracts/${r.id}/identify-signers`
+                                    : `/dashboard/contracts/${r.id}`
+                                )
                               }
                             >
                               <Play className="h-3.5 w-3.5 mr-1.5" />
-                              Start
+                              {isMarkers ? "Gán chữ ký" : "Start"}
                             </Button>
                           </td>
                         </tr>

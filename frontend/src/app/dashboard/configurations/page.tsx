@@ -5,20 +5,34 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
 import { FormListsPanel } from "@/components/configurations/form-lists-panel";
+import { SigningRulesPanel } from "@/components/configurations/signing-rules-panel";
 import { SystemPromptsPanel } from "@/components/configurations/system-prompts-panel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
 import { getSession } from "@/lib/review-service";
 import {
+  canAccessConfig,
   canAccessConfigurations,
   canAccessFormLists,
   canAccessSystemPrompts,
 } from "@/lib/roles";
 import type { UserSession } from "@/lib/types";
-import { ArrowLeft, FileCode2, ListTree, Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  FileCode2,
+  ListTree,
+  Loader2,
+  Users,
+} from "lucide-react";
 
-type ConfigTab = "form-lists" | "system-prompts";
+type ConfigTab = "form-lists" | "system-prompts" | "signing";
+
+function tabQuery(tab: ConfigTab): string {
+  if (tab === "system-prompts") return "?tab=system-prompts";
+  if (tab === "signing") return "?tab=signing";
+  return "";
+}
 
 function ConfigurationsContent() {
   const router = useRouter();
@@ -28,14 +42,17 @@ function ConfigurationsContent() {
 
   const canForms = canAccessFormLists(session);
   const canPrompts = canAccessSystemPrompts(session);
+  const canSigning = canAccessConfig(session);
 
   const tabParam = searchParams.get("tab");
   const initialTab: ConfigTab = useMemo(() => {
     if (tabParam === "system-prompts" && canPrompts) return "system-prompts";
+    if (tabParam === "signing" && canSigning) return "signing";
     if (canForms) return "form-lists";
+    if (canSigning) return "signing";
     if (canPrompts) return "system-prompts";
     return "form-lists";
-  }, [tabParam, canForms, canPrompts]);
+  }, [tabParam, canForms, canPrompts, canSigning]);
   const [tab, setTab] = useState<ConfigTab>(initialTab);
 
   useEffect(() => {
@@ -43,7 +60,8 @@ function ConfigurationsContent() {
     if (!canAccessConfigurations(s)) {
       toast({
         title: "Không có quyền Configurations",
-        description: "Cần quyền Form lists hoặc System prompts.",
+        description:
+          "Cần quyền Form lists, System prompts hoặc Cấu hình hợp đồng.",
         variant: "destructive",
       });
       router.push("/dashboard");
@@ -71,10 +89,6 @@ function ConfigurationsContent() {
           <h1 className="text-xl font-semibold tracking-tight">
             Configurations
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Cấu hình dropdown form tạo review và System prompts — theo quyền IT
-            gán trên Users.
-          </p>
         </div>
         <Button size="sm" variant="outline" asChild>
           <Link href="/dashboard">
@@ -90,9 +104,9 @@ function ConfigurationsContent() {
           const next = v as ConfigTab;
           if (next === "form-lists" && !canForms) return;
           if (next === "system-prompts" && !canPrompts) return;
+          if (next === "signing" && !canSigning) return;
           setTab(next);
-          const q = next === "system-prompts" ? "?tab=system-prompts" : "";
-          router.replace(`/dashboard/configurations${q}`);
+          router.replace(`/dashboard/configurations${tabQuery(next)}`);
         }}
         className="space-y-4"
       >
@@ -101,6 +115,12 @@ function ConfigurationsContent() {
             <TabsTrigger value="form-lists" className="gap-1.5 px-4">
               <ListTree className="h-3.5 w-3.5" />
               Form lists
+            </TabsTrigger>
+          )}
+          {canSigning && (
+            <TabsTrigger value="signing" className="gap-1.5 px-4">
+              <Users className="h-3.5 w-3.5" />
+              Phân quyền ký
             </TabsTrigger>
           )}
           {canPrompts && (
@@ -114,6 +134,11 @@ function ConfigurationsContent() {
         {canForms && (
           <TabsContent value="form-lists" className="mt-0">
             <FormListsPanel />
+          </TabsContent>
+        )}
+        {canSigning && (
+          <TabsContent value="signing" className="mt-0">
+            <SigningRulesPanel />
           </TabsContent>
         )}
         {canPrompts && (

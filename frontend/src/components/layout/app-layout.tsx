@@ -11,6 +11,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Sparkles,
   Users,
 } from "lucide-react";
 import { clearSession, getSession } from "@/lib/review-service";
@@ -21,6 +22,7 @@ import {
   canAccessContractsList,
   canAccessTasks,
   canAccessUsers,
+  canCreateContracts,
 } from "@/lib/roles";
 
 const SIDEBAR_KEY = "ai_econtract_sidebar_collapsed";
@@ -81,6 +83,15 @@ export default function AppLayout({
   const navigation = [
     ...(canAccessTasks(user)
       ? [{ name: "Task", href: "/dashboard/tasks", icon: Gavel }]
+      : []),
+    ...(canCreateContracts(user) || canAccessContractsList(user)
+      ? [
+          {
+            name: "Review hợp đồng",
+            href: "/dashboard/review",
+            icon: Sparkles,
+          },
+        ]
       : []),
     ...(canAccessContractsList(user)
       ? [
@@ -157,7 +168,7 @@ export default function AppLayout({
                   Saint-Gobain
                 </div>
                 <div className="text-xs text-muted-foreground truncate">
-                  AI Review Hợp đồng
+                  AI Legal
                 </div>
               </div>
             )}

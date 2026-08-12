@@ -44,7 +44,13 @@ import type {
 import type { ContractNameOption } from "@/lib/form-lists-store";
 import { getSession } from "@/lib/review-service";
 import { canAccessConfig } from "@/lib/roles";
-import { ArrowLeft, Loader2, Plus, Settings2, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Plus,
+  Settings2,
+  Trash2,
+} from "lucide-react";
 
 type ConfirmAction = {
   mode: "delete";
@@ -260,26 +266,9 @@ export default function ConfigListPage() {
                 <CardHeader className="pb-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <CardTitle className="text-base">
-                          {parent.label}
-                        </CardTitle>
-                        <Badge variant="secondary" className="text-[11px]">
-                          Loại cha
-                        </Badge>
-                        {parentConfig ? (
-                          <Badge variant="outline" className="text-[11px]">
-                            Cha: {parentConfig.clauses.length} điều khoản
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="outline"
-                            className="text-[11px] text-muted-foreground"
-                          >
-                            Chưa cấu hình loại cha
-                          </Badge>
-                        )}
-                      </div>
+                      <CardTitle className="text-base">
+                        {parent.label}
+                      </CardTitle>
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
                       <Button
