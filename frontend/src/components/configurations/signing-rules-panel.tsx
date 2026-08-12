@@ -24,9 +24,10 @@ import type {
   SigningAuthorityRule,
   SigningSlotRole,
 } from "@/lib/config-types";
-import { loadFormLists, type CodeLabelOption } from "@/lib/form-lists-store";
+import { fetchFormLists } from "@/lib/form-lists-service";
+import type { CodeLabelOption } from "@/lib/form-lists-store";
 import type { AppUser } from "@/lib/types";
-import { loadUsers } from "@/lib/user-store";
+import { fetchUsers } from "@/lib/users-service";
 import { Check, ChevronDown, Loader2, Plus, Save, Trash2 } from "lucide-react";
 
 function newRule(
@@ -268,15 +269,14 @@ export function SigningRulesPanel() {
   const [users, setUsers] = useState<AppUser[]>([]);
 
   useEffect(() => {
-    Promise.all([listSigningRules(), listParentCategories()])
-      .then(([r, p]) => {
+    Promise.all([listSigningRules(), listParentCategories(), fetchFormLists(), fetchUsers()])
+      .then(([r, p, lists, allUsers]) => {
         setRules(r);
         setParents(p);
-        const lists = loadFormLists();
         setCompanies(
           lists.businessEntities.filter((c) => c.status !== "archived")
         );
-        setUsers(loadUsers().filter((u) => u.active));
+        setUsers(allUsers.filter((u) => u.active));
       })
       .catch((e) =>
         toast({

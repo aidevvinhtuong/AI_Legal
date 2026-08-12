@@ -140,7 +140,7 @@ Route: `/dashboard/contracts/[id]/design-markers`
 
 ![Hình 7.5 — Thiết kế vị trí ký (chụp từ hệ thống)](docs/images/signing-flow/04-design-markers.png)
 
-Chi tiết API / mã lỗi: [`docs/requirements-alignment/07-econtract-integration.md`](docs/requirements-alignment/07-econtract-integration.md). Env: `ECONTRACT_*` trong `frontend/.env.local` (xem `.env.example`).
+Chi tiết API / mã lỗi: [`docs/requirements-alignment/07-econtract-integration.md`](docs/requirements-alignment/07-econtract-integration.md). Credentials FPT: `ECONTRACT_*` trong `backend/.env` (xem `backend/.env.example`).
 
 ## Ba phương thức chỉnh sửa (Mục 4.7)
 
@@ -286,7 +286,13 @@ cp .env.example .env.local    # NEXT_PUBLIC_USE_MOCK=true
 npm install && npm run dev    # http://localhost:3001
 ```
 
-Next rewrite `/api/*` → `http://localhost:8000` (`API_REWRITE_URL`). Cần **backend chạy** khi Submit eContract / sửa System prompts / API reupload.
+Next rewrite `/api/*` → `API_REWRITE_URL` (mặc định `:8000`). Để `NEXT_PUBLIC_API_URL` **trống** trong `.env.local` để dùng rewrite.
+
+| Mode | Env | Hành vi |
+|------|-----|---------|
+| Demo mock | `NEXT_PUBLIC_USE_MOCK=true` | Dữ liệu localStorage; eContract giả lập |
+| Mock + eContract thật | `USE_MOCK=true` + `NEXT_PUBLIC_ECONTRACT_LIVE=true` | Cần `backend/` chạy |
+| Đấu nối BE đầy đủ | `NEXT_PUBLIC_USE_MOCK=false` | Mọi service gọi REST theo [04-api-contract.md](docs/requirements-alignment/04-api-contract.md) |
 
 Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv)
 
@@ -308,7 +314,7 @@ Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://loc
 | `/dashboard/configurations` | **Form lists** · **Phân quyền ký** · **System prompts** |
 | `/dashboard/users` | Users + Line Manager + tick phân quyền hạng mục |
 
-Mock: `NEXT_PUBLIC_USE_MOCK=true`. Khi có BE đầy đủ: `NEXT_PUBLIC_USE_MOCK=false` + `NEXT_PUBLIC_API_URL`. Các API server-only (eContract / prompts / reupload) luôn qua folder **`backend/`** (port 8000).
+Mock: `NEXT_PUBLIC_USE_MOCK=true`. Đấu nối BE: `NEXT_PUBLIC_USE_MOCK=false` (+ backend implement contract). eContract / prompts / reupload luôn qua folder **`backend/`**. Spec endpoint: [docs/requirements-alignment/04-api-contract.md](docs/requirements-alignment/04-api-contract.md).
 
 ### Tài liệu yêu cầu trong repo
 
@@ -318,4 +324,5 @@ Mock: `NEXT_PUBLIC_USE_MOCK=true`. Khi có BE đầy đủ: `NEXT_PUBLIC_USE_MOC
 | [frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx](frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx) | Bản Rev10 cũ (tham chiếu lịch sử) |
 | [prompts/](prompts/) | System Prompt theo stage + con trỏ `current.json` |
 | [docs/images/signing-flow/](docs/images/signing-flow/) | Ảnh **chụp từ hệ thống demo** (Task, identify-signers, design-markers) — dùng trong Blueprint mục 7 / phụ lục |
-| [docs/requirements-alignment/](docs/requirements-alignment/) | Bộ tài liệu giai đoạn thống nhất yêu cầu — bắt đầu từ `00-pm-roadmap.md` (lộ trình 10 ngày cho PM), kèm gap analysis · open questions · user stories · API contract · NFR/risks · test strategy · **07-econtract-integration.md** |
+| [docs/api-contract.md](docs/api-contract.md) | Lối vào nhanh → API contract FE↔BE |
+| [docs/requirements-alignment/](docs/requirements-alignment/) | Bộ tài liệu giai đoạn thống nhất yêu cầu — bắt đầu từ `00-pm-roadmap.md` (lộ trình 10 ngày cho PM), kèm gap analysis · open questions · user stories · **04-api-contract.md** · NFR/risks · test strategy · **07-econtract-integration.md** |

@@ -13,14 +13,16 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import {
   countFormListItemUsage,
-  defaultFormLists,
   isFormListItemArchived,
-  loadFormLists,
-  saveFormLists,
   slugId,
   type FormListKind,
   type FormListsState,
 } from "@/lib/form-lists-store";
+import {
+  defaultFormLists,
+  fetchFormLists,
+  persistFormLists,
+} from "@/lib/form-lists-service";
 import {
   Archive,
   ArchiveRestore,
@@ -375,8 +377,16 @@ export function FormListsPanel() {
   };
 
   useEffect(() => {
-    setState(loadFormLists());
-  }, []);
+    fetchFormLists()
+      .then(setState)
+      .catch((e) =>
+        toast({
+          title: "Không tải được Form lists",
+          description: e instanceof Error ? e.message : "Lỗi",
+          variant: "destructive",
+        })
+      );
+  }, [toast]);
 
   if (!state) {
     return (
@@ -388,8 +398,15 @@ export function FormListsPanel() {
 
   const persist = (next: FormListsState, msg = "Đã lưu cấu hình list") => {
     setState(next);
-    saveFormLists(next);
-    toast({ title: msg });
+    void persistFormLists(next)
+      .then(() => toast({ title: msg }))
+      .catch((e) =>
+        toast({
+          title: "Không lưu được Form lists",
+          description: e instanceof Error ? e.message : "Lỗi",
+          variant: "destructive",
+        })
+      );
   };
 
   const visible = <T extends { status?: string }>(

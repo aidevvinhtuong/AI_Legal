@@ -34,14 +34,14 @@ import type { AppUser, PermissionKey, UserDepartment, UserRole } from "@/lib/typ
 import {
   USER_DEPARTMENTS,
   USER_ROLES,
-  createUser,
-  deleteUser,
+  createUserRemote,
+  deleteUserRemote,
   emptyUserInput,
-  loadUsers,
+  fetchUsers,
   roleLabel,
-  updateUser,
+  updateUserRemote,
   type UserInput,
-} from "@/lib/user-store";
+} from "@/lib/users-service";
 import { Loader2, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -55,7 +55,9 @@ export default function UsersPage() {
   const [form, setForm] = useState<UserInput>(emptyUserInput());
   const [saving, setSaving] = useState(false);
 
-  const refresh = () => setUsers(loadUsers());
+  const refresh = async () => {
+    setUsers(await fetchUsers());
+  };
 
   useEffect(() => {
     const session = getSession();
@@ -71,8 +73,15 @@ export default function UsersPage() {
       router.push("/dashboard");
       return;
     }
-    refresh();
-    setLoading(false);
+    void refresh()
+      .catch((e) =>
+        toast({
+          title: "Không tải được Users",
+          description: e instanceof Error ? e.message : "Lỗi",
+          variant: "destructive",
+        })
+      )
+      .finally(() => setLoading(false));
   }, [router, toast]);
 
   const managerOptions = useMemo(
@@ -143,18 +152,18 @@ export default function UsersPage() {
     }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     setSaving(true);
     try {
       if (editingId) {
-        updateUser(editingId, form);
+        await updateUserRemote(editingId, form);
         toast({ title: "Đã cập nhật user" });
       } else {
-        createUser(form);
+        await createUserRemote(form);
         toast({ title: "Đã tạo user" });
       }
       setOpen(false);
-      refresh();
+      await refresh();
     } catch (e) {
       toast({
         title: "Lỗi",
@@ -166,12 +175,12 @@ export default function UsersPage() {
     }
   };
 
-  const handleDelete = (u: AppUser) => {
+  const handleDelete = async (u: AppUser) => {
     if (!confirm(`Xóa user "${u.username}"?`)) return;
     try {
-      deleteUser(u.id);
+      await deleteUserRemote(u.id);
       toast({ title: "Đã xóa user" });
-      refresh();
+      await refresh();
     } catch (e) {
       toast({
         title: "Lỗi",
