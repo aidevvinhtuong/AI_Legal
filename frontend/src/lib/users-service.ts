@@ -26,12 +26,12 @@ export {
 
 export async function fetchUsers(): Promise<AppUser[]> {
   if (USE_MOCK) return loadUsers();
-  return api.get("/api/users") as Promise<AppUser[]>;
+  return api.get("/api/v1/users") as Promise<AppUser[]>;
 }
 
 export async function createUserRemote(input: UserInput): Promise<AppUser> {
   if (USE_MOCK) return createUserLocal(input);
-  return api.post("/api/users", input) as Promise<AppUser>;
+  return api.post("/api/v1/users", input) as Promise<AppUser>;
 }
 
 export async function updateUserRemote(
@@ -39,7 +39,7 @@ export async function updateUserRemote(
   input: UserInput
 ): Promise<AppUser> {
   if (USE_MOCK) return updateUserLocal(id, input);
-  return api.put(`/api/users/${id}`, input) as Promise<AppUser>;
+  return api.put(`/api/v1/users/${id}`, input) as Promise<AppUser>;
 }
 
 export async function deleteUserRemote(id: string): Promise<void> {
@@ -47,5 +47,5 @@ export async function deleteUserRemote(id: string): Promise<void> {
     deleteUserLocal(id);
     return;
   }
-  await api.delete(`/api/users/${id}`);
+  await api.delete(`/api/v1/users/${id}`);
 }

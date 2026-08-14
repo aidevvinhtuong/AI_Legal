@@ -120,7 +120,7 @@ export async function listConfigVersions(): Promise<ContractTypeConfigVersion[]>
         a.contractTypeId.localeCompare(b.contractTypeId) || b.version - a.version
     );
   }
-  return api.get("/api/config/versions") as Promise<ContractTypeConfigVersion[]>;
+  return api.get("/api/v1/config/versions") as Promise<ContractTypeConfigVersion[]>;
 }
 
 export async function getConfigVersion(
@@ -132,7 +132,7 @@ export async function getConfigVersion(
     if (!found) throw new Error("Không tìm thấy cấu hình");
     return found;
   }
-  return api.get(`/api/config/versions/${id}`) as Promise<ContractTypeConfigVersion>;
+  return api.get(`/api/v1/config/versions/${id}`) as Promise<ContractTypeConfigVersion>;
 }
 
 export async function listMatrices(): Promise<ApprovalMatrixConfig[]> {
@@ -140,7 +140,7 @@ export async function listMatrices(): Promise<ApprovalMatrixConfig[]> {
     await delay(100);
     return loadMatrices();
   }
-  return api.get("/api/config/matrices") as Promise<ApprovalMatrixConfig[]>;
+  return api.get("/api/v1/config/matrices") as Promise<ApprovalMatrixConfig[]>;
 }
 
 export async function listConfigAudit(
@@ -156,7 +156,7 @@ export async function listConfigAudit(
   const q = contractTypeId
     ? `?contractTypeId=${encodeURIComponent(contractTypeId)}`
     : "";
-  return api.get(`/api/config/audit${q}`) as Promise<ConfigAuditEntry[]>;
+  return api.get(`/api/v1/config/audit${q}`) as Promise<ConfigAuditEntry[]>;
 }
 
 export async function saveConfigDraft(
@@ -187,7 +187,7 @@ export async function saveConfigDraft(
     });
     return updated;
   }
-  return api.put(`/api/config/versions/${config.id}`, config) as Promise<ContractTypeConfigVersion>;
+  return api.put(`/api/v1/config/versions/${config.id}`, config) as Promise<ContractTypeConfigVersion>;
 }
 
 export async function upsertClause(
@@ -309,7 +309,7 @@ export async function listParentCategories(): Promise<ContractParentCategory[]> 
       group: "framework" as ContractGroup,
     }));
   }
-  return api.get("/api/config/parent-categories") as Promise<
+  return api.get("/api/v1/config/parent-categories") as Promise<
     ContractParentCategory[]
   >;
 }
@@ -329,7 +329,7 @@ export async function listFormListContractNames(
   const q = categoryId
     ? `?categoryId=${encodeURIComponent(categoryId)}`
     : "";
-  return api.get(`/api/config/contract-names${q}`) as Promise<ContractNameOption[]>;
+  return api.get(`/api/v1/config/contract-names${q}`) as Promise<ContractNameOption[]>;
 }
 
 /** Suy ra lớp cấu hình khi seed cũ thiếu configLayer. */
@@ -529,7 +529,7 @@ export async function ensureConfigForParentCategory(
     });
     return parent;
   }
-  return api.post(`/api/config/parent-categories/${categoryId}/ensure`, {}) as Promise<ContractTypeConfigVersion>;
+  return api.post(`/api/v1/config/parent-categories/${categoryId}/ensure`, {}) as Promise<ContractTypeConfigVersion>;
 }
 
 /**
@@ -609,7 +609,7 @@ export async function ensureConfigForContractName(
     });
     return child;
   }
-  return api.post(`/api/config/contract-names/${contractNameId}/ensure`, {}) as Promise<ContractTypeConfigVersion>;
+  return api.post(`/api/v1/config/contract-names/${contractNameId}/ensure`, {}) as Promise<ContractTypeConfigVersion>;
 }
 
 /**
@@ -760,7 +760,7 @@ export async function archiveChildContractType(
     syncFormListContractNameStatus(contractTypeId, "archived");
     return;
   }
-  await api.post(`/api/config/contract-types/${contractTypeId}/archive`, {});
+  await api.post(`/api/v1/config/contract-types/${contractTypeId}/archive`, {});
 }
 
 /** Lưu trữ checklist loại cha — các con vẫn hiện; AI chỉ còn overlay con (nếu có). */
@@ -789,7 +789,7 @@ export async function archiveParentContractConfig(
     );
     return;
   }
-  await api.post(`/api/config/parent-categories/${categoryId}/archive`, {});
+  await api.post(`/api/v1/config/parent-categories/${categoryId}/archive`, {});
   return;
 }
 
@@ -827,7 +827,7 @@ export async function deleteChildContractType(
     });
     return;
   }
-  await api.delete(`/api/config/contract-types/${contractTypeId}`);
+  await api.delete(`/api/v1/config/contract-types/${contractTypeId}`);
   return;
 }
 
@@ -859,7 +859,7 @@ export async function deleteParentContractConfig(
     });
     return;
   }
-  await api.delete(`/api/config/parent-categories/${categoryId}`);
+  await api.delete(`/api/v1/config/parent-categories/${categoryId}`);
   return;
 }
 
@@ -902,7 +902,7 @@ export async function restoreChildContractType(
     syncFormListContractNameStatus(contractTypeId, "active");
     return;
   }
-  await api.post(`/api/config/contract-types/${contractTypeId}/restore`, {});
+  await api.post(`/api/v1/config/contract-types/${contractTypeId}/restore`, {});
   return;
 }
 
@@ -940,7 +940,7 @@ export async function restoreParentContractConfig(
     });
     return;
   }
-  await api.post(`/api/config/parent-categories/${categoryId}/restore`, {});
+  await api.post(`/api/v1/config/parent-categories/${categoryId}/restore`, {});
   return;
 }
 
@@ -1100,7 +1100,7 @@ export async function listSigningRules(): Promise<SigningAuthorityRule[]> {
     await delay(80);
     return loadSigningRules();
   }
-  return api.get("/api/signing-rules") as Promise<SigningAuthorityRule[]>;
+  return api.get("/api/v1/signing-rules") as Promise<SigningAuthorityRule[]>;
 }
 
 function parseContractValueVnd(raw: string | number | null | undefined): number {
@@ -1183,7 +1183,7 @@ export async function saveSigningRules(
     });
     return next;
   }
-  const data = (await api.put("/api/signing-rules", { rules })) as
+  const data = (await api.put("/api/v1/signing-rules", { rules })) as
     | SigningAuthorityRule[]
     | { rules: SigningAuthorityRule[] };
   return Array.isArray(data) ? data : data.rules;

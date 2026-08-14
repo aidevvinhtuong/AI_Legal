@@ -129,7 +129,7 @@ export async function loginAs(role: UserRole): Promise<UserSession> {
     }
     return user;
   }
-  const user = (await api.post("/api/auth/login", { role }, {
+  const user = (await api.post("/api/v1/auth/login", { role }, {
     skipAuthRedirect: true,
   })) as UserSession;
   setSession(user);
@@ -156,7 +156,7 @@ export async function loginWithCredentials(
     return session;
   }
   const user = (await api.post(
-    "/api/auth/login",
+    "/api/v1/auth/login",
     { username, password },
     { skipAuthRedirect: true }
   )) as UserSession;
@@ -177,7 +177,7 @@ export async function changeOwnPassword(
     setEcontractUserLogin(username, newPassword);
     return;
   }
-  await api.post("/api/auth/change-password", {
+  await api.post("/api/v1/auth/change-password", {
     username,
     oldPassword,
     newPassword,
@@ -193,7 +193,7 @@ export async function listContractTypes(): Promise<ContractTypeConfig[]> {
       (t) => t.label.trim() && t.id.trim() && t.status !== "archived"
     );
   }
-  return api.get("/api/contract-types");
+  return api.get("/api/v1/contract-types");
 }
 
 export async function listDocumentCategories(): Promise<DocumentCategory[]> {
@@ -203,7 +203,7 @@ export async function listDocumentCategories(): Promise<DocumentCategory[]> {
       (c) => c.status !== "archived"
     );
   }
-  return api.get("/api/document-categories");
+  return api.get("/api/v1/document-categories");
 }
 
 export async function listDiscountOptions(): Promise<DiscountOption[]> {
@@ -211,7 +211,7 @@ export async function listDiscountOptions(): Promise<DiscountOption[]> {
     await delay(50);
     return loadFormLists().discountOptions;
   }
-  return api.get("/api/discount-options");
+  return api.get("/api/v1/discount-options");
 }
 
 export async function listBusinessEntities(): Promise<CodeLabelOption[]> {
@@ -221,7 +221,7 @@ export async function listBusinessEntities(): Promise<CodeLabelOption[]> {
       (e) => e.status !== "archived"
     );
   }
-  return api.get("/api/business-entities");
+  return api.get("/api/v1/business-entities");
 }
 
 export async function listContractBases(): Promise<CodeLabelOption[]> {
@@ -231,7 +231,7 @@ export async function listContractBases(): Promise<CodeLabelOption[]> {
       (b) => b.status !== "archived"
     );
   }
-  return api.get("/api/contract-bases");
+  return api.get("/api/v1/contract-bases");
 }
 
 export async function listContractNames(): Promise<ContractNameOption[]> {
@@ -241,7 +241,7 @@ export async function listContractNames(): Promise<ContractNameOption[]> {
       (n) => n.status !== "archived"
     );
   }
-  return api.get("/api/contract-names");
+  return api.get("/api/v1/contract-names");
 }
 
 export async function listReviews(): Promise<ContractReview[]> {
@@ -273,7 +273,7 @@ export async function listReviews(): Promise<ContractReview[]> {
     }
     return all;
   }
-  return api.get("/api/reviews");
+  return api.get("/api/v1/reviews");
 }
 
 export async function getReviewById(id: string): Promise<ContractReview> {
@@ -283,7 +283,7 @@ export async function getReviewById(id: string): Promise<ContractReview> {
     if (!review) throw new Error("Không tìm thấy yêu cầu review");
     return review;
   }
-  return api.get(`/api/reviews/${id}`);
+  return api.get(`/api/v1/reviews/${id}`);
 }
 
 export async function createReview(input: {
@@ -419,7 +419,7 @@ export async function createReview(input: {
   form.append("intake", JSON.stringify(input.intake));
   form.append("files", primary);
   references.forEach((f) => form.append("reference_files", f));
-  return api.post("/api/reviews", form);
+  return api.post("/api/v1/reviews", form);
 }
 
 /**
@@ -545,7 +545,7 @@ export async function advanceQueue(id: string): Promise<ContractReview> {
     }
     return review;
   }
-  return api.post(`/api/reviews/${id}/advance`);
+  return api.get(`/api/v1/reviews/${id}`);
 }
 
 /** Cập nhật thông tin hợp đồng (intake) — dùng khi nháp / trước khi gửi Legal. */
@@ -614,7 +614,7 @@ export async function updateReviewIntake(
     upsertReview(review);
     return review;
   }
-  return api.patch(`/api/reviews/${id}/intake`, input);
+  return api.patch(`/api/v1/reviews/${id}/intake`, input);
 }
 
 /** Nháp → đưa vào Processing Queue để AI review. */
@@ -644,7 +644,7 @@ export async function submitDraftToQueue(id: string): Promise<ContractReview> {
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/submit-queue`);
+  return api.post(`/api/v1/reviews/${id}/retry-ai`);
 }
 
 export async function sendChat(
@@ -675,7 +675,7 @@ export async function sendChat(
     upsertReview(review);
     return { review, reply };
   }
-  return api.post(`/api/reviews/${id}/chat`, { content });
+  return api.post(`/api/v1/reviews/${id}/chat`, { content });
 }
 
 export async function updateProposalStatus(
@@ -715,7 +715,7 @@ export async function updateProposalStatus(
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/proposals/${proposalId}`, { status });
+  return api.post(`/api/v1/reviews/${id}/proposals/${proposalId}`, { status });
 }
 
 export async function acceptAllProposals(id: string): Promise<ContractReview> {
@@ -730,7 +730,7 @@ export async function acceptAllProposals(id: string): Promise<ContractReview> {
     }
     return getReview(id)!;
   }
-  return api.post(`/api/reviews/${id}/proposals/accept-all`);
+  return api.post(`/api/v1/reviews/${id}/proposals/accept-all`);
 }
 
 export async function undoAllProposals(id: string): Promise<ContractReview> {
@@ -745,7 +745,7 @@ export async function undoAllProposals(id: string): Promise<ContractReview> {
     }
     return getReview(id)!;
   }
-  return api.post(`/api/reviews/${id}/proposals/undo-all`);
+  return api.post(`/api/v1/reviews/${id}/proposals/undo-all`);
 }
 
 /** Cập nhật toàn bộ nội dung reviewed sau khi user sửa trực tiếp trên Word embed. */
@@ -784,7 +784,13 @@ export async function updateReviewedDocument(
     upsertReview(review);
     return review;
   }
-  return api.patch(`/api/reviews/${id}/document`, { text: plainText });
+  // Backend KHÔNG có endpoint ghi toàn văn bản: nhận cả tài liệu làm payload thì
+  // không thể biết phần nào người dùng được phép sửa — phá vỡ mô hình vùng khoá.
+  // Ghi phải đi qua saveFields(), định vị bằng permId.
+  void plainText;
+  throw new Error(
+    "Không còn ghi toàn văn bản. Dùng saveFields(id, fields) để ghi theo vùng mở."
+  );
 }
 
 /** Cập nhật nội dung một section (vùng mở) sau khi user gõ trực tiếp trên Word pane. */
@@ -837,9 +843,13 @@ export async function updateReviewedSection(
     upsertReview(review);
     return review;
   }
-  return api.patch(`/api/reviews/${id}/sections/${sectionIndex}`, {
-    body: nextBody,
-  });
+  // Định vị bằng số thứ tự đoạn không sống sót qua các vòng sửa.
+  // Backend định vị bằng permId của vùng mở.
+  void sectionIndex;
+  void nextBody;
+  throw new Error(
+    "Không còn ghi theo số thứ tự đoạn. Dùng saveFields(id, fields) với permId."
+  );
 }
 
 export async function saveFields(
@@ -935,7 +945,7 @@ export async function saveFields(
     upsertReview(review);
     return review;
   }
-  return api.put(`/api/reviews/${id}/fields`, { fields });
+  return api.put(`/api/v1/reviews/${id}/fields`, { fields });
 }
 
 import {
@@ -988,7 +998,7 @@ export async function assignMarker(
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/markers`, {
+  return api.post(`/api/v1/reviews/${id}/markers`, {
     recipientId,
     positionLabel,
     height,
@@ -1023,7 +1033,7 @@ export async function updateRecipient(
     upsertReview(review);
     return review;
   }
-  return api.patch(`/api/reviews/${id}/recipients/${recipientId}`, patch);
+  return api.patch(`/api/v1/reviews/${id}/recipients/${recipientId}`, patch);
 }
 
 const VERSION_ACTION_LABEL: Record<ContractVersionAction, string> = {
@@ -1084,7 +1094,7 @@ export async function submitToLegal(id: string): Promise<ContractReview> {
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/submit-legal`);
+  return api.post(`/api/v1/reviews/${id}/submit`);
 }
 
 /** Purchasing Manager approve / reject (lane 4 swimlane). */
@@ -1127,7 +1137,7 @@ export async function managerDecide(
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/manager-decide`, { decision, comment });
+  return api.post(`/api/v1/reviews/${id}/manager-decide`, { decision, comment });
 }
 
 export async function legalDecide(
@@ -1181,7 +1191,7 @@ export async function legalDecide(
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/legal-decision`, { decision, feedback });
+  return api.post(`/api/v1/reviews/${id}/legal-decision`, { decision, feedback });
 }
 
 /**
@@ -1206,7 +1216,7 @@ export async function saveSigningRecipients(
     upsertReview(review);
     return review;
   }
-  return api.put(`/api/reviews/${id}/recipients`, { recipients });
+  return api.put(`/api/v1/reviews/${id}/recipients`, { recipients });
 }
 
 /**
@@ -1263,7 +1273,7 @@ export async function completeMarkersAndPushEcontract(
     );
   }
 
-  const data = (await api.post("/api/econtract/push", {
+  const data = (await api.post("/api/v1/econtract/push", {
     reviewId: id,
     review,
     username: login.username,
@@ -1367,7 +1377,7 @@ export async function placeMarkerOnDocument(
     upsertReview(review);
     return review;
   }
-  return api.post(`/api/reviews/${id}/markers/place`, {
+  return api.post(`/api/v1/reviews/${id}/markers/place`, {
     recipientId,
     ...placement,
   });
@@ -1424,7 +1434,7 @@ export async function applySigningMatrix(
     upsertReview(review);
     return { review, bandLabel: resolved.bandLabel };
   }
-  return api.post(`/api/reviews/${id}/apply-signing-matrix`, {});
+  return api.post(`/api/v1/reviews/${id}/apply-signing-matrix`, {});
 }
 
 async function fetchDocxBytes(url: string): Promise<ArrayBuffer> {
@@ -1523,7 +1533,7 @@ export async function reuploadSubmit(
 
   const form = new FormData();
   form.append("file", file);
-  return api.post(`/api/reviews/${contractId}/reupload`, form) as Promise<ContractReview>;
+  return api.post(`/api/v1/reviews/${contractId}/reupload`, form) as Promise<ContractReview>;
 }
 
 export { ReuploadValidationError, formatIssueMessage };

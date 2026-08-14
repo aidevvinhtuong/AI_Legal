@@ -1,0 +1,225 @@
+# AI Legal — stack PRODUCTION / UAT.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#   (hoặc: make prod-up)
+#
+# Khác docker-compose.yml (dev) ở bốn điểm cốt lõi:
+#
+#   1. Image dựng từ stage `prod`: code NẰM TRONG image, không bind mount,
+#      không --reload. Cùng một image chạy được ở UAT và PROD.
+#   2. Migration chạy bằng service `migrate` riêng, one-shot, api chỉ khởi động
+#      sau khi nó thoát mã 0. Không bao giờ migrate ngầm lúc app khởi động —
+#      nhiều worker cùng migrate là hỏng schema.
+#   3. Không mở cổng hạ tầng ra ngoài. Postgres/Redis/MinIO chỉ nghe trong mạng
+#      nội bộ của compose; API bind vào 127.0.0.1 để bắt buộc đi qua reverse
+#      proxy (TLS) ở tầng trên.
+#   4. Bí mật KHÔNG có giá trị mặc định — thiếu là compose dừng ngay.
+
+name: ailegal-prod
+
+x-app-env: &app_env
+  ENV: ${ENV:-prod}
+  DEBUG: "false"
+  SECRET_KEY: ${SECRET_KEY:?SECRET_KEY chưa đặt}
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?}:${POSTGRES_PASSWORD:?}@postgres:5432/${POSTGRES_DB:?}
+  REDIS_URL: redis://redis:6379/0
+  S3_ENDPOINT: http://minio:9000
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:?}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?}
+  S3_BUCKET: ${S3_BUCKET:-ailegal-documents}
+  LLM_BASE_URL: ${LLM_BASE_URL:?}
+  LLM_MODEL: ${LLM_MODEL:?}
+  LLM_API_KEY: ${LLM_API_KEY:-EMPTY}
+  EMBED_BASE_URL: ${EMBED_BASE_URL:?}
+  RERANK_BASE_URL: ${RERANK_BASE_URL:?}
+  PROMPTS_DIR: /prompts
+
+x-app-build: &app_build
+  context: ./backend
+  dockerfile: Dockerfile
+  target: prod
+  args:
+    GIT_SHA: ${GIT_SHA:-unknown}
+    BUILD_TIME: ${BUILD_TIME:-unknown}
+    # Bật khi triển khai vòng eContract (cần convert .docx → PDF)
+    WITH_LIBREOFFICE: ${WITH_LIBREOFFICE:-0}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Thư mục để job backup ghi dump ra ngoài container
+      - ${BACKUP_DIR:-./backups}:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly: job trong hàng đợi không được mất khi restart (NFR-R3)
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?}
+    volumes:
+      - miniodata:/data
+    ports:
+      # Console chỉ mở cho localhost của máy chủ, dùng khi vận hành cần soi
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9101}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    logging: *logging
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY} ${S3_SECRET_KEY} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-ailegal-documents} &&
+      mc version enable local/${S3_BUCKET:-ailegal-documents} &&
+      mc anonymous set none local/${S3_BUCKET:-ailegal-documents}
+      "
+    restart: "no"
+
+  # One-shot: chạy migration rồi thoát. api/worker chờ nó thành công.
+  migrate:
+    build: *app_build
+    image: ailegal-backend:${IMAGE_TAG:-latest}
+    command: ["alembic", "upgrade", "head"]
+    environment: *app_env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    logging: *logging
+
+  api:
+    build: *app_build
+    image: ailegal-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      <<: *app_env
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+    volumes:
+      # Prompt do Git quản lý. Gắn ghi được vì màn Configurations của IT sửa
+      # file CURRENT — vận hành PHẢI commit thay đổi đó ngược lại Git, nếu
+      # không lần deploy sau sẽ ghi đè.
+      - ./prompts:/prompts
+    ports:
+      # Chỉ localhost — reverse proxy (Nginx/Traefik) đứng trước để làm TLS
+      - "127.0.0.1:${API_PORT:-8010}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-2g}
+    logging: *logging
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: prod
+      args:
+        # NEXT_PUBLIC_* phải truyền lúc BUILD — Next nhúng cứng vào bundle.
+        # Đổi giá trị mà không build lại image là không có tác dụng.
+        NEXT_PUBLIC_USE_MOCK: "false"
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_ECONTRACT_LIVE: ${NEXT_PUBLIC_ECONTRACT_LIVE:-false}
+        GIT_SHA: ${GIT_SHA:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
+    image: ailegal-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      # Biến phía server, đọc lúc chạy — đổi được mà không build lại
+      API_REWRITE_URL: http://api:8000
+      NODE_ENV: production
+    ports:
+      # Chỉ localhost — reverse proxy (Nginx/Traefik) đứng trước để làm TLS
+      - "127.0.0.1:${FRONTEND_PORT:-3001}:3000"
+    depends_on:
+      api:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEMORY_LIMIT:-1g}
+    logging: *logging
+
+  worker:
+    build: *app_build
+    image: ailegal-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    # prefetch-multiplier=1 là BẮT BUỘC: job AI chạy dài, prefetch mặc định
+    # khiến một worker ôm nhiều job rồi để chờ, phá vỡ FIFO (ràng buộc C-7).
+    command: >
+      celery -A app.workers.celery_app worker
+      -Q ai,interactive,io -c ${WORKER_CONCURRENCY:-4} --prefetch-multiplier=1 -l INFO
+    environment: *app_env
+    volumes:
+      - ./prompts:/prompts:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${WORKER_MEMORY_LIMIT:-4g}
+    logging: *logging
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

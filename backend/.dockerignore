@@ -1,0 +1,21 @@
+# Không đưa vào image: rác build, môi trường ảo, cache, dữ liệu test
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.import_linter_cache/
+*.egg-info/
+.coverage
+htmlcov/
+.git/
+.gitignore
+.env
+.env.*
+tests/
+node_modules/
+package.json
+package-lock.json
+tsconfig.json
+src/

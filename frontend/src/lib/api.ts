@@ -1,7 +1,7 @@
 /**
  * HTTP client cho FE → Backend.
  *
- * Browser mặc định gọi relative `/api/...` (Next rewrite → API_REWRITE_URL).
+ * Browser mặc định gọi relative `/api/v1/...` (Next rewrite → API_REWRITE_URL).
  * Có thể ghi đè bằng NEXT_PUBLIC_API_URL (absolute) khi cần (SSR/test).
  *
  * Mock dữ liệu nghiệp vụ: NEXT_PUBLIC_USE_MOCK=true (localStorage).

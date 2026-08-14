@@ -16,7 +16,7 @@ export { defaultFormLists };
 
 export async function fetchFormLists(): Promise<FormListsState> {
   if (USE_MOCK) return loadFormLists();
-  return api.get("/api/form-lists") as Promise<FormListsState>;
+  return api.get("/api/v1/form-lists") as Promise<FormListsState>;
 }
 
 export async function persistFormLists(
@@ -26,7 +26,7 @@ export async function persistFormLists(
     saveFormListsLocal(state);
     return state;
   }
-  return api.put("/api/form-lists", state) as Promise<FormListsState>;
+  return api.put("/api/v1/form-lists", state) as Promise<FormListsState>;
 }
 
 export async function resetFormLists(): Promise<FormListsState> {

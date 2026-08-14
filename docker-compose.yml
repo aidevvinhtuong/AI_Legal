@@ -1,0 +1,162 @@
+# AI Legal — stack phát triển.
+#
+# LƯU Ý CỔNG: máy dev đang chạy nhiều dự án khác (PBI Analysis API chiếm 8000 và
+# 8001, Airflow chiếm 8080). Mọi cổng host ở đây đã chọn lệch để không đụng.
+#
+# KHÔNG có container LLM/embedding/rerank: ba model đã được deploy sẵn ngoài
+# phạm vi dự án, backend chỉ gọi API (xem TS-12 mục II).
+
+name: ailegal
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ailegal}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ailegal}
+      POSTGRES_DB: ${POSTGRES_DB:-ailegal}
+      # Đối chiếu chuỗi theo chuẩn Unicode — quan trọng với tiếng Việt có dấu
+      POSTGRES_INITDB_ARGS: "--locale=C.UTF-8 --encoding=UTF8"
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ailegal} -d ${POSTGRES_DB:-ailegal}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    # appendonly: job trong hàng đợi không được mất khi restart (NFR-R3)
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-63790}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-ailegal}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-ailegal-secret}
+    ports:
+      - "${MINIO_PORT:-9100}:9000"
+      - "${MINIO_CONSOLE_PORT:-9101}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Tạo bucket + bật versioning, chạy một lần rồi thoát
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-ailegal} ${S3_SECRET_KEY:-ailegal-secret} &&
+      mc mb --ignore-existing local/${S3_BUCKET:-ailegal-documents} &&
+      mc version enable local/${S3_BUCKET:-ailegal-documents} &&
+      mc anonymous set none local/${S3_BUCKET:-ailegal-documents} &&
+      echo 'bucket sẵn sàng — không có quyền truy cập ẩn danh'
+      "
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      --proxy-headers --forwarded-allow-ips='*'
+    environment: &app_env
+      ENV: ${ENV:-dev}
+      DEBUG: ${DEBUG:-true}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY chưa đặt trong .env}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ailegal}:${POSTGRES_PASSWORD:-ailegal}@postgres:5432/${POSTGRES_DB:-ailegal}
+      REDIS_URL: redis://redis:6379/0
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-ailegal}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-ailegal-secret}
+      S3_BUCKET: ${S3_BUCKET:-ailegal-documents}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://171.244.136.217:8386/v1}
+      LLM_MODEL: ${LLM_MODEL:-Qwen/Qwen3.6-27B}
+      LLM_API_KEY: ${LLM_API_KEY:-EMPTY}
+      EMBED_BASE_URL: ${EMBED_BASE_URL:-http://171.244.136.217:8387}
+      RERANK_BASE_URL: ${RERANK_BASE_URL:-http://171.244.136.217:8389}
+      PROMPTS_DIR: /prompts
+    ports:
+      - "${API_PORT:-8010}:8000"
+    volumes:
+      - ./backend:/srv/backend
+      - ./prompts:/prompts:ro          # prompt quản lý bằng Git, mount chỉ đọc
+      - ./tests-corpus:/corpus:ro      # .docx thật cho test fidelity (gitignore)
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    environment:
+      # Trong mạng compose thì gọi BE bằng TÊN SERVICE, không phải localhost —
+      # `localhost` bên trong container là chính nó, không phải máy host.
+      API_REWRITE_URL: http://api:8000
+      NEXT_PUBLIC_USE_MOCK: ${NEXT_PUBLIC_USE_MOCK:-false}
+      # Đặt true trong .env nếu sửa file mà trình duyệt không tự nạp lại
+      WATCHPACK_POLLING: ${WATCHPACK_POLLING:-false}
+      CHOKIDAR_USEPOLLING: ${WATCHPACK_POLLING:-false}
+    ports:
+      - "${FRONTEND_PORT:-3001}:3001"
+    volumes:
+      - ./frontend:/app
+      # Hai volume ẩn danh giữ node_modules và .next CỦA CONTAINER. Thiếu chúng
+      # thì bind mount ở trên che mất node_modules đã cài trong image, và
+      # container chết ngay với "next: not found".
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      api:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
+    # CHƯA DÙNG ở M1: pipeline chạy đồng bộ, `app.workers.celery_app` chưa tồn
+    # tại nên container sẽ crash-loop. Bật khi làm G4:  make up-worker
+    profiles: ["worker"]
+    # prefetch-multiplier=1 là BẮT BUỘC: job AI chạy dài, prefetch mặc định
+    # khiến một worker ôm nhiều job rồi để chờ, phá vỡ FIFO (ràng buộc C-7).
+    command: >
+      celery -A app.workers.celery_app worker
+      -Q ai,interactive,io -c 4 --prefetch-multiplier=1 -l INFO
+    environment: *app_env
+    volumes:
+      - ./backend:/srv/backend
+      - ./prompts:/prompts:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

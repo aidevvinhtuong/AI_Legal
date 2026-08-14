@@ -3,5 +3,30 @@ node_modules/
 out/
 .env
 .env.*
+!.env.example
 *.log
 .DS_Store
+
+.claude/settings.local.json
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Tài liệu hợp đồng thật — KHÔNG commit nội dung hợp đồng vào Git
+tests-corpus/
+backend/tests/corpus/
+*.docx
+!docs/**/*.docx
+
+# Sản phẩm sinh ra
+docs/
+docs/AI-Legal_Technical-Solution_Phase1_Full.docx

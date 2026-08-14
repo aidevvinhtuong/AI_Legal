@@ -1,0 +1,177 @@
+# AI Legal — lệnh phát triển.
+#   make            xem danh sách lệnh
+#
+# .venv local chạy Python 3.10 (máy dev không có 3.12) — dùng cho vòng lặp
+# nhanh trên services/document và services/ai. Container chạy 3.12 như TS-01.
+
+SHELL     := /bin/bash
+VENV      := .venv
+PY        := $(VENV)/bin/python
+PIP       := $(VENV)/bin/pip
+PYTEST    := $(VENV)/bin/pytest
+RUFF      := $(VENV)/bin/ruff
+COMPOSE   := docker compose
+BACKEND   := backend
+
+.DEFAULT_GOAL := help
+
+# ── Trợ giúp ──────────────────────────────────────────────────────────────
+.PHONY: help
+help:
+	@echo "AI Legal — lệnh phát triển"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+
+# ── Thiết lập ─────────────────────────────────────────────────────────────
+.PHONY: venv
+venv: ## Tạo .venv và cài phụ thuộc
+	@test -d $(VENV) || python3 -m venv $(VENV)
+	$(PIP) install --quiet --upgrade pip
+	$(PIP) install --quiet -e "$(BACKEND)[dev]"
+	@echo "venv sẵn sàng: $$($(PY) -V)"
+
+.PHONY: env
+env: ## Tạo .env từ .env.example nếu chưa có
+	@test -f .env || (cp .env.example .env && echo "Đã tạo .env — NHỚ đổi SECRET_KEY")
+	@test -f .env && echo ".env đã có"
+
+# ── Docker ────────────────────────────────────────────────────────────────
+.PHONY: up
+up: env ## Dựng cả stack DEV (postgres, redis, minio, api, frontend) — sửa code là tự nạp lại
+	$(COMPOSE) up -d --build
+	@echo "Frontend: http://localhost:$${FRONTEND_PORT:-3001}"
+	@echo "API:      http://localhost:$${API_PORT:-8010}/docs"
+	@echo "MinIO:    http://localhost:$${MINIO_CONSOLE_PORT:-9101}"
+
+.PHONY: up-worker
+up-worker: env ## Như `make up` nhưng bật thêm Celery worker (cần từ G4)
+	$(COMPOSE) --profile worker up -d --build
+
+.PHONY: infra
+infra: env ## Chỉ dựng postgres, redis, minio (chạy api/worker ở local)
+	$(COMPOSE) up -d postgres redis minio minio-init
+
+.PHONY: down
+down: ## Dừng toàn bộ (giữ nguyên dữ liệu)
+	$(COMPOSE) down
+
+.PHONY: logs
+logs: ## Theo dõi log api + frontend
+	$(COMPOSE) logs -f api frontend
+
+.PHONY: logs-fe
+logs-fe: ## Chỉ log frontend
+	$(COMPOSE) logs -f frontend
+
+.PHONY: ps
+ps: ## Trạng thái container
+	$(COMPOSE) ps
+
+.PHONY: shell
+shell: ## Vào shell container api
+	$(COMPOSE) exec api bash
+
+# ── Production / UAT ──────────────────────────────────────────────────────
+# Image dựng từ stage `prod`: code nằm trong image, không mount, nhiều worker.
+PROD := $(COMPOSE) -f docker-compose.prod.yml
+
+.PHONY: prod-build
+prod-build: ## Dựng image prod (gắn nhãn commit đang checkout)
+	GIT_SHA=$$(git rev-parse --short HEAD) \
+	BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+	$(PROD) build
+
+.PHONY: prod-up
+prod-up: ## Chạy stack prod (migration chạy trước, api chờ nó xong)
+	GIT_SHA=$$(git rev-parse --short HEAD) \
+	BUILD_TIME=$$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+	$(PROD) up -d --build
+
+.PHONY: prod-down
+prod-down: ## Dừng stack prod (GIỮ nguyên dữ liệu)
+	$(PROD) down
+
+.PHONY: prod-logs
+prod-logs: ## Theo dõi log api + worker của prod
+	$(PROD) logs -f api worker
+
+.PHONY: prod-ps
+prod-ps: ## Trạng thái container prod
+	$(PROD) ps
+
+.PHONY: prod-migrate
+prod-migrate: ## Chạy lại migration trên stack prod
+	$(PROD) run --rm migrate
+
+# ── Cơ sở dữ liệu ─────────────────────────────────────────────────────────
+.PHONY: migrate
+migrate: ## Chạy migration lên bản mới nhất
+	cd $(BACKEND) && ../$(VENV)/bin/alembic upgrade head
+
+.PHONY: revision
+revision: ## Sinh migration mới:  make revision m="mô tả"
+	cd $(BACKEND) && ../$(VENV)/bin/alembic revision --autogenerate -m "$(m)"
+
+.PHONY: downgrade
+downgrade: ## Lùi 1 bản migration
+	cd $(BACKEND) && ../$(VENV)/bin/alembic downgrade -1
+
+.PHONY: seed
+seed: ## Nạp dữ liệu mẫu (user, loại HĐ, template HDDV)
+	cd $(BACKEND) && ../$(PY) -m app.seed
+
+# ── Kiểm thử ──────────────────────────────────────────────────────────────
+.PHONY: test
+test: ## Chạy toàn bộ test
+	cd $(BACKEND) && ../$(PYTEST) -q
+
+.PHONY: test-unit
+test-unit: ## Chỉ unit test (không cần hạ tầng)
+	cd $(BACKEND) && ../$(PYTEST) -q -m "not integration and not fidelity and not models"
+
+.PHONY: test-fx
+test-fx: ## Test giữ format trên .docx thật
+	cd $(BACKEND) && ../$(PYTEST) -q -m fidelity -v
+
+.PHONY: cov
+cov: ## Test kèm báo cáo độ phủ
+	cd $(BACKEND) && ../$(PYTEST) -q --cov=app --cov-report=term-missing
+
+# ── Chất lượng mã ─────────────────────────────────────────────────────────
+.PHONY: lint
+lint: ## ruff + kiểm ranh giới kiến trúc
+	$(RUFF) check $(BACKEND)
+	cd $(BACKEND) && ../$(VENV)/bin/lint-imports
+
+.PHONY: fmt
+fmt: ## Định dạng lại mã
+	$(RUFF) format $(BACKEND)
+	$(RUFF) check --fix $(BACKEND)
+
+# ── Công cụ chẩn đoán ─────────────────────────────────────────────────────
+.PHONY: check-models
+check-models: ## Kiểm chứng 3 endpoint LLM / embedding / rerank
+	python3 scripts/check-llm.py
+
+.PHONY: check-ports
+check-ports: ## Xem cổng nào đang bị chiếm trên máy
+	python3 scripts/check-ports.py
+
+.PHONY: audit-templates
+audit-templates: ## Kiểm định template hợp đồng có đạt chuẩn không
+	python3 scripts/audit-templates.py
+
+.PHONY: inspect
+inspect: ## Soi cấu trúc 1 file .docx:  make inspect f=path/to.docx
+	python3 scripts/inspect-template.py "$(f)"
+
+# ── Chạy local (không qua Docker) ─────────────────────────────────────────
+.PHONY: dev
+dev: ## Chạy API ở local, dùng hạ tầng trong Docker
+	cd $(BACKEND) && ../$(VENV)/bin/uvicorn app.main:app --reload --port $${API_PORT:-8010}
+
+.PHONY: dev-worker
+dev-worker: ## Chạy Celery worker ở local
+	cd $(BACKEND) && ../$(VENV)/bin/celery -A app.workers.celery_app worker \
+	  -Q ai,interactive,io -c 2 --prefetch-multiplier=1 -l INFO

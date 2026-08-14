@@ -33,7 +33,7 @@ export async function fetchSystemPrompts(): Promise<SystemPromptSnapshot[]> {
   if (USE_MOCK) {
     return MOCK_PROMPTS.map((p) => ({ ...p, content: p.content }));
   }
-  const data = (await api.get("/api/system-prompts")) as {
+  const data = (await api.get("/api/v1/system-prompts")) as {
     prompts: SystemPromptSnapshot[];
   };
   return data.prompts || [];
@@ -49,7 +49,7 @@ export async function updateSystemPrompt(
     found.content = content;
     return { ...found };
   }
-  const data = (await api.put("/api/system-prompts", { stage, content })) as {
+  const data = (await api.put("/api/v1/system-prompts", { stage, content })) as {
     prompt: SystemPromptSnapshot;
   };
   return data.prompt;

@@ -1,0 +1,140 @@
+[project]
+name = "ailegal-backend"
+version = "0.1.0"
+description = "AI Legal — Hệ thống AI Review Hợp đồng (Saint-Gobain Việt Nam)"
+# Container chạy 3.12 (đúng TS-01). Máy dev chỉ có 3.10 và không cài thêm được
+# (cần apt). Nên hạ sàn xuống 3.10 để .venv local chạy được test của
+# services/document và services/ai — hai thư viện thuần, nơi cần vòng lặp nhanh nhất.
+# HỆ QUẢ: tránh cú pháp chỉ có từ 3.11+ (StrEnum, Self, except*, @override,
+# class Foo[T]). Ruff target-version=py310 sẽ bắt lỗi này.
+requires-python = ">=3.10"
+
+dependencies = [
+    # API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "python-multipart>=0.0.12",
+
+    # DB
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+
+    # Hạ tầng
+    "redis>=5.2",
+    "celery>=5.4",
+    "boto3>=1.35",              # MinIO qua S3 API
+
+    # OOXML — hạt nhân của services/document
+    "lxml>=5.3",
+
+    # AuthN
+    "pyjwt>=2.10",
+    "argon2-cffi>=23.1",
+
+    # Gọi model (OpenAI-compatible + TEI). Dùng httpx trực tiếp,
+    # KHÔNG dùng SDK openai: endpoint TEI không theo chuẩn OpenAI,
+    # và ta cần kiểm soát chat_template_kwargs.
+    "httpx>=0.28",
+
+    # Quan trắc
+    "structlog>=24.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+    "import-linter>=2.1",
+    "types-lxml",
+]
+
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# Migration do Alembic sinh — định dạng máy, không sửa tay để giữ nguyên vẹn
+# lịch sử. Migration viết tay vẫn phải theo chuẩn nên chỉ loại thư mục versions.
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "RUF001",  # ký tự Unicode "nhìn giống" — tiếng Việt có dấu, không phải lỗi
+    "RUF002",
+    "RUF003",
+    "B008",    # Depends() ở default argument là idiom của FastAPI
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "fidelity: test giữ format trên .docx thật (cần tests/corpus/)",
+    "integration: cần postgres/redis/minio đang chạy",
+    "models: cần 3 endpoint LLM/embed/rerank sống",
+]
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Ranh giới kiến trúc — bất biến của backend/CLAUDE.md mục 2.
+# services/document và services/ai phải là thư viện THUẦN để test được
+# trên .docx thật mà không cần dựng DB.
+[tool.importlinter]
+root_package = "app"
+# Bắt buộc khi contract có forbidden_modules là package ngoài (fastapi, sqlalchemy…)
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "document & ai khong duoc dinh framework"
+type = "forbidden"
+source_modules = ["app.services.document", "app.services.ai"]
+forbidden_modules = [
+    "fastapi",
+    "sqlalchemy",
+    "celery",
+    "boto3",
+    "app.api",
+    "app.infra.db",
+    "app.workers",
+]
+
+[[tool.importlinter.contracts]]
+name = "phu thuoc mot chieu: api -> services -> infra"
+type = "layers"
+layers = ["app.api", "app.services", "app.infra"]
+exhaustive = false
+
+# `domain` là TRUNG TÂM: chứa từ vựng nghiệp vụ, máy trạng thái và RBAC.
+# Nó không được biết gì về HTTP, DB, hay tầng service — nhờ vậy toàn bộ luật
+# nghiệp vụ test được bằng bảng thuần, không cần dựng hạ tầng.
+# (Bản trước xếp domain trên services là SAI chiều: thực tế service dùng domain.)
+[[tool.importlinter.contracts]]
+name = "domain la trung tam, khong phu thuoc gi"
+type = "forbidden"
+source_modules = ["app.domain"]
+forbidden_modules = [
+    "fastapi",
+    "sqlalchemy",
+    "celery",
+    "boto3",
+    "app.api",
+    "app.services",
+    "app.infra",
+    "app.workers",
+]

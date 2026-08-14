@@ -1,0 +1,15 @@
+# Không đưa vào image: rác build và thứ container tự dựng
+node_modules
+.next
+out
+.git
+.gitignore
+.env
+.env.*
+npm-debug.log*
+*.tsbuildinfo
+coverage
+.DS_Store
+Dockerfile
+.dockerignore
+README.md
