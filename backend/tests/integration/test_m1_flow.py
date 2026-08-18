@@ -45,9 +45,7 @@ def client() -> TestClient:
 
 
 def _token(client: TestClient, username: str, password: str = "demo123") -> str:
-    response = client.post(
-        "/api/v1/auth/login", json={"username": username, "password": password}
-    )
+    response = client.post("/api/v1/auth/login", json={"username": username, "password": password})
     assert response.status_code == 200, response.text
     return response.json()["token"]
 
@@ -95,9 +93,7 @@ def review(client: TestClient, owner_token: str) -> dict:
 # Đăng nhập
 # ─────────────────────────────────────────────────────────────────────────────
 def test_dang_nhap_va_lay_phien(client: TestClient):
-    response = client.post(
-        "/api/v1/auth/login", json={"username": "van.a", "password": "demo123"}
-    )
+    response = client.post("/api/v1/auth/login", json={"username": "van.a", "password": "demo123"})
     assert response.status_code == 200
     body = response.json()
     assert body["role"] == "purchasing"
@@ -259,9 +255,7 @@ def test_sua_mot_truong_mo_tao_version_moi(client: TestClient, owner_token: str,
     assert after == before
 
 
-def test_ghi_vao_vung_khoa_bi_tu_choi_kem_ly_do(
-    client: TestClient, owner_token: str, review: dict
-):
+def test_ghi_vao_vung_khoa_bi_tu_choi_kem_ly_do(client: TestClient, owner_token: str, review: dict):
     locked = next(f for f in review["fields"] if f["locked"])
 
     response = client.put(
@@ -302,9 +296,7 @@ def test_nguoi_khac_khong_ghi_duoc(client: TestClient, review: dict):
 # ─────────────────────────────────────────────────────────────────────────────
 # Tải file
 # ─────────────────────────────────────────────────────────────────────────────
-def test_tai_file_ve_van_mo_duoc_bang_bo_doc(
-    client: TestClient, owner_token: str, review: dict
-):
+def test_tai_file_ve_van_mo_duoc_bang_bo_doc(client: TestClient, owner_token: str, review: dict):
     response = client.get(
         f"/api/v1/reviews/{review['id']}/files/reviewed", headers=_auth(owner_token)
     )
@@ -321,9 +313,7 @@ def test_tai_file_ve_van_mo_duoc_bang_bo_doc(
 
 def test_nguoi_khac_khong_tai_duoc_file(client: TestClient, review: dict):
     other = _token(client, "thi.b")
-    response = client.get(
-        f"/api/v1/reviews/{review['id']}/files/original", headers=_auth(other)
-    )
+    response = client.get(f"/api/v1/reviews/{review['id']}/files/original", headers=_auth(other))
     assert response.status_code == 403
 
 

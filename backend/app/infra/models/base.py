@@ -46,6 +46,4 @@ class RowVersionMixin:
     trigger đúng cả khi có ai đó UPDATE thẳng bằng SQL.
     """
 
-    row_version: Mapped[int] = mapped_column(
-        BigInteger, nullable=False, server_default=text("1")
-    )
+    row_version: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("1"))

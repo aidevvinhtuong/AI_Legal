@@ -155,11 +155,7 @@ def _usage_count(db, item: CatalogItem) -> int:
     }.get(item.kind)
     if key is None:
         return 0
-    return (
-        db.query(ContractReview)
-        .filter(ContractReview.intake[key].astext == item.slug)
-        .count()
-    )
+    return db.query(ContractReview).filter(ContractReview.intake[key].astext == item.slug).count()
 
 
 @router.post("/form-lists/{kind}", dependencies=[Depends(require(Permission.FORM_LISTS))])
@@ -223,9 +219,7 @@ def restore_item(kind: str, slug: str, db: DbSession) -> dict[str, Any]:
     return _item_out(item)
 
 
-@router.delete(
-    "/form-lists/{kind}/{slug}", dependencies=[Depends(require(Permission.FORM_LISTS))]
-)
+@router.delete("/form-lists/{kind}/{slug}", dependencies=[Depends(require(Permission.FORM_LISTS))])
 def delete_item(kind: str, slug: str, db: DbSession) -> dict[str, Any]:
     """Chỉ xoá được khi chưa có hợp đồng nào dùng — đã dùng thì phải Lưu trữ."""
     item = _get(db, kind, slug)

@@ -9,13 +9,16 @@ FastAPI tự đẩy route đồng bộ sang threadpool.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import logging
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from sqlalchemy import MetaData, create_engine
+from sqlalchemy import MetaData, create_engine, event
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.infra.settings import get_settings
+
+log = logging.getLogger("ailegal.db")
 
 # Đặt tên ràng buộc theo quy ước để Alembic autogenerate sinh migration ổn định.
 # Thiếu cái này thì ràng buộc do Postgres tự đặt tên, và mỗi lần autogenerate lại
@@ -58,6 +61,28 @@ def get_session() -> Iterator[Session]:
         raise
     finally:
         session.close()
+
+
+def on_commit(session: Session, callback: Callable[[], None]) -> None:
+    """
+    Chạy `callback` SAU KHI transaction commit thành công.
+
+    Bắt buộc cho mọi lần đánh thức worker. Gọi `task.delay()` ngay trong
+    request là một cuộc đua có thật, không phải rủi ro lý thuyết: worker nhận
+    job trong vài mili-giây, truy vấn bản ghi mà transaction chưa commit, không
+    thấy gì, rồi kết thúc im lặng. Đo được trên máy dev — job `econtract.push`
+    trả `{"status": "missing"}` 5ms sau khi được đẩy.
+
+    Lỗi bên trong `callback` không được làm hỏng request: dữ liệu đã commit
+    xong rồi, và job vẫn còn trong outbox cho lượt quét định kỳ vớt lại.
+    """
+
+    @event.listens_for(session, "after_commit", once=True)
+    def _fire(_session: Session) -> None:  # pragma: no cover — chạy trong event loop của SA
+        try:
+            callback()
+        except Exception as e:
+            log.error("hook after_commit lỗi: %s", e)
 
 
 @contextmanager

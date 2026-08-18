@@ -15,6 +15,8 @@ from app.infra.models.catalog import (
     ContractTemplate,
     DocumentSequence,
 )
+from app.infra.models.config import ChecklistConfig, SigningAuthorityRule
+from app.infra.models.econtract import EcontractEvent, EcontractOutbox
 from app.infra.models.review import (
     ChatMessage,
     ContractReview,
@@ -33,12 +35,16 @@ __all__ = [
     "AuditLog",
     "CatalogItem",
     "ChatMessage",
+    "ChecklistConfig",
     "ContractReview",
     "ContractTemplate",
     "DocumentField",
     "DocumentSequence",
+    "EcontractEvent",
+    "EcontractOutbox",
     "FeedbackItem",
     "ReviewFile",
     "ReviewVersion",
+    "SigningAuthorityRule",
     "User",
 ]

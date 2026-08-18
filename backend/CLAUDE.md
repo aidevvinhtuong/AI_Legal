@@ -13,6 +13,7 @@ Bốn điều dưới đây không có ngoại lệ, không có cờ tắt, khô
 | # | Bất biến | Nơi thực thi |
 |---|----------|--------------|
 | **B1** | **Không byte nào trong vùng khoá của hợp đồng được thay đổi.** Kể cả khi LLM bị lừa, frontend bị bypass, hay user cố tình | `services/document/allowlist.py` (lọc trước) + `postcheck.py` (kiểm sau). Cả hai đều bắt buộc chạy |
+| **B1b** | **Chèn marker ký số KHÔNG được sửa file gốc.** Marker là ghi vào vùng khoá, nên chỉ tồn tại trên một **bản xuất bản** riêng (`ReviewFile(kind="econtract")`) | `services/document/marker.py` → `assert_marker_only()`: bản xuất bản khác bản gốc đúng ở các đoạn marker, không hơn |
 | **B2** | **LLM không bao giờ sinh ra con số điểm.** Hai điểm số do `services/ai/scorer.py` tính bằng code, deterministic | `scorer.py`; prompt `ai_summary_fairness` cấm tường minh |
 | **B3** | **Không hardcode nội dung pháp lý** (số ngày, %, tên điều khoản, ngưỡng) trong code hoặc prompt. Nó thuộc Legal, nằm ở bảng `checklist_clauses` | CI `scripts/validate-prompts.js` + grep trong CI |
 | **B4** | **RBAC enforce ở tầng repository**, không phải ở router. Router quên kiểm thì vẫn an toàn | `domain/rbac.py` + mệnh đề `WHERE` trong repository |
@@ -81,9 +82,12 @@ Mọi thứ qua biến môi trường, đọc bằng `pydantic-settings` ở `in
 | Dịch vụ | Cổng host |
 |---|:---:|
 | API | **8010** |
+| Frontend | 3001 |
 | PostgreSQL | 55432 |
 | Redis | 63790 |
 | MinIO API / Console | 9100 / 9101 |
+
+Service `worker` và `beat` không mở cổng nào.
 
 Frontend phải đặt `API_REWRITE_URL=http://localhost:8010` (Next rewrite proxy
 `/api/*`), hoặc `NEXT_PUBLIC_API_URL=http://localhost:8010` nếu gọi trực tiếp.
@@ -127,6 +131,17 @@ Embedding và rerank là **TEI native API** (`/embed`, `/rerank`), không phải
 | Comment trong code | Tiếng Việt cho phần giải thích *vì sao*; tên định danh tiếng Anh. Chỉ comment chỗ không hiển nhiên |
 | Test | `pytest`. Mỗi bug sửa xong phải có 1 test chặn nó tái diễn |
 
+### Đánh thức Celery worker
+
+**Luôn qua `infra.db.on_commit(db, ...)`, không bao giờ gọi `task.delay()` thẳng
+trong request.** Worker nhận job trong vài mili-giây và sẽ truy vấn bản ghi mà
+transaction chưa commit — job kết thúc im lặng với `{"status": "missing"}`. Đã
+đo được trên máy dev, không phải rủi ro lý thuyết.
+
+Redis chết thì hàm `enqueue_*` trả `None` chứ không ném; bản ghi vẫn nằm trong
+DB và task định kỳ (`ai.drain`, `econtract.drain`) vớt lại. Hai task đó chạy
+bằng service `beat` — thiếu nó là mất lưới an toàn.
+
 ### Đặc thù xử lý OOXML
 
 - Namespace luôn qua `qn()` của helper, không viết chuỗi `"{http://...}p"` thẳng.
@@ -153,7 +168,9 @@ Embedding và rerank là **TEI native API** (`/embed`, `/rerank`), không phải
 
 Có chỗ sẵn trong kiến trúc, nhưng chưa implement — đừng tưởng bị bỏ sót:
 
-marker ký số · tích hợp eContract · comment 2 chiều (TH1) · track changes (TH2) · reupload PT3 · cấu hình checklist trên UI · SSE realtime · editor nhúng.
+comment 2 chiều (TH1) · track changes (TH2) · reupload PT3 · cấu hình checklist trên UI · SSE realtime · editor nhúng · nhận file đã ký về từ FPT (ngoài scope theo C-5).
+
+**eContract đã làm xong luồng đẩy** (M4) nhưng đang chạy **adapter mock**: chưa có credentials môi trường Demo (câu hỏi mở D1e). Điền 4 biến `ECONTRACT_*` vào `.env` là chuyển sang gọi thật, không phải sửa code. Hai giá trị `ECONTRACT_SELECTOR` / `ECONTRACT_DOC_TYPE_CODE` cũng còn là placeholder (D1a/D1b), và `MARKER_PX_PER_SPACE` **chưa hiệu chuẩn** — phải đo bề rộng ô ký thật trên môi trường Demo (ca EC-07).
 
 ---
 

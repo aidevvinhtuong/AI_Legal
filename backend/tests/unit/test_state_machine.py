@@ -173,9 +173,7 @@ def test_day_econtract_bi_chan_khi_thieu_marker():
 # ─────────────────────────────────────────────────────────────────────────────
 def test_ai_hong_thi_chay_lai_duoc():
     assert next_status(ctx(S.PROCESSING), A.FAIL_AI) is S.FAILED
-    assert (
-        next_status(ctx(S.FAILED, role=R.PURCHASING, is_owner=True), A.RETRY_AI) is S.QUEUED
-    )
+    assert next_status(ctx(S.FAILED, role=R.PURCHASING, is_owner=True), A.RETRY_AI) is S.QUEUED
 
 
 def test_day_econtract_hong_thi_thu_lai_duoc_khong_ket_vinh_vien():

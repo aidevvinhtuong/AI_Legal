@@ -51,9 +51,7 @@ class DocumentEngine(Protocol):
 
     def get_field_inventory(self, pkg: DocxPackage) -> FieldInventory: ...
 
-    def apply_field_changes(
-        self, blob: bytes, changes: list[FieldChange]
-    ) -> WriteResult: ...
+    def apply_field_changes(self, blob: bytes, changes: list[FieldChange]) -> WriteResult: ...
 
     def diff_outside(
         self, before: bytes, after: bytes, allowed_perm_ids: set[str]

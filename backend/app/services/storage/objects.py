@@ -82,9 +82,7 @@ class ObjectStorage:
         except (BotoCoreError, ClientError) as e:
             raise UpstreamError("object storage", f"Không ghi được file: {e}") from e
 
-        return StoredObject(
-            key=key, sha256=digest, size_bytes=len(data), content_type=content_type
-        )
+        return StoredObject(key=key, sha256=digest, size_bytes=len(data), content_type=content_type)
 
     # ── Đọc ───────────────────────────────────────────────────────────────
     def get(self, key: str) -> bytes:

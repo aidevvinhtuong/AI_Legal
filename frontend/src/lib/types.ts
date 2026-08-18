@@ -181,6 +181,70 @@ export interface ChatMessage {
   createdAt: string;
 }
 
+/**
+ * Vị trí ô ký trong tài liệu.
+ *
+ * NEO LÀ `paraId`, KHÔNG PHẢI TOẠ ĐỘ. Toạ độ trang chỉ tồn tại sau khi phân
+ * trang, mà FPT nhận thẳng `.docx` (base64) nên không có bước render nào để
+ * dịch ngược. `paraId` là `w14:paraId` của đoạn văn — ổn định qua round-trip
+ * Word, và backend định vị được để chèn marker.
+ *
+ * Người dùng vẫn kéo-thả như cũ; chỉ khác ở chỗ thả xong thì lấy `paraId` của
+ * đoạn gần nhất trong `GET /api/v1/reviews/{id}/marker-anchors`.
+ */
+export interface SignMarker {
+  /** id duy nhất trong toàn file, ví dụ `ds_p_001_r_001` */
+  id: string;
+  type: MarkerType;
+  /** h: chiều cao ô ký (chiều rộng = khoảng cách #...#) */
+  height: number;
+  /** Chiều rộng ô ký (px UI / khoảng trắng giữa #…#) — mặc định 164. */
+  width?: number;
+  /** Mặc định | Lớn (UI thiết kế). */
+  sizePreset?: "default" | "large";
+  positionLabel: string;
+
+  /** ★ Neo thật: `w14:paraId` của đoạn văn. Bắt buộc khi gửi lên BE. */
+  paraId?: string;
+  align?: "left" | "center" | "right";
+  position?: "after" | "before";
+  /** Số thứ tự đoạn neo — BE trả về để UI cuộn tới đúng chỗ. */
+  anchorOrdinal?: number;
+  anchorPreview?: string;
+  /**
+   * BE bật cờ này khi phải SUY RA neo từ `yPct` vì FE không gửi `paraId`.
+   * Vị trí lúc đó chỉ là xấp xỉ — UI phải cảnh báo, không được im lặng.
+   */
+  approximated?: boolean;
+
+  /** Gợi ý hiển thị của UI cũ. KHÔNG quyết định vị trí ghi vào tài liệu. */
+  page?: number;
+  xPct?: number;
+  yPct?: number;
+}
+
+/** Một vị trí neo hợp lệ do backend đọc ra từ chính tài liệu. */
+export interface MarkerAnchor {
+  paraId: string;
+  ordinal: number;
+  preview: string;
+  inTable: boolean;
+  isOpen: boolean;
+  /** Đoạn trống — thường là chỗ đẹp nhất để đặt ô ký (khoảng trên dòng kẻ). */
+  blank: boolean;
+  /** Số điều khoản do Word sinh (`Điều 5.`) — không có trong luồng text. */
+  clause?: string | null;
+  /** Nằm trong khối chữ ký — UI nên ưu tiên làm điểm hít. */
+  recommended: boolean;
+}
+
+export interface MarkerIssue {
+  /** Mã lỗi của FPT, ví dụ `wrongFieldWithRole`. */
+  code: string;
+  message: string;
+  recipientId?: string;
+}
+
 export interface SignRecipient {
   /** recipientId theo chuẩn eContract, ví dụ `p_001_r_001` */
   id: string;
@@ -229,24 +293,7 @@ export interface SignRecipient {
    */
   refRecipientId?: string;
   markerType: MarkerType;
-  marker?: {
-    /** id duy nhất trong toàn file, ví dụ `ds_p_001_r_001` */
-    id: string;
-    type: MarkerType;
-    /** h: chiều cao ô ký (chiều rộng = khoảng cách #...#) */
-    height: number;
-    /** Chiều rộng ô ký (px UI / khoảng trắng giữa #…#) — mặc định 164. */
-    width?: number;
-    /** Mặc định | Lớn (UI thiết kế). */
-    sizePreset?: "default" | "large";
-    positionLabel: string;
-    /** Trang tài liệu (1-based) — gán kéo-thả. */
-    page?: number;
-    /** Tọa độ ngang % trên trang (0–100). */
-    xPct?: number;
-    /** Tọa độ dọc % trên trang (0–100). */
-    yPct?: number;
-  };
+  marker?: SignMarker;
   /** Nhãn bậc ma trận ký nếu recipient sinh từ Signing Flow Matrix. */
   signingMatrixBandLabel?: string;
 }

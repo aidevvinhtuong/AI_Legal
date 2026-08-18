@@ -26,15 +26,34 @@ from app.api.deps import CurrentUser, DbSession, assert_fresh, etag, if_match
 from app.api.presenters import review_out
 from app.domain.enums import ReviewAction, ReviewKind, ReviewStatus
 from app.domain.errors import NotFoundError, ValidationError
+from app.infra.db import on_commit
 from app.infra.models import ReviewFile
 from app.infra.settings import get_settings
 from app.services.document.allowlist import FieldChange
 from app.services.review import service
+from app.services.review.ai_review import run_ai_review
 from app.services.storage.objects import get_storage
+from app.workers.ai_review import enqueue_review
 
 router = APIRouter(prefix="/api/v1/reviews", tags=["reviews"])
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+def _start_ai(db, review) -> None:
+    """
+    Khởi động AI review.
+
+    Đẩy job phải chờ **sau khi commit**: worker nhận job trong vài mili-giây và
+    sẽ không thấy ticket nếu transaction chưa xong. Redis chết thì job không
+    vào được hàng đợi, nhưng ticket vẫn nằm ở `queued` và task định kỳ
+    `ai.drain` sẽ vớt — không chặn request để chạy đồng bộ vài phút.
+    """
+    if get_settings().AI_RUN_INLINE:
+        run_ai_review(db, review)
+        return
+    review_id, version = str(review.id), review.version
+    on_commit(db, lambda: enqueue_review(review_id, version))
 
 
 def _out(db, review) -> dict[str, Any]:
@@ -120,9 +139,7 @@ def create_review(
 
     primary = file or (files[0] if files else None)
     if primary is None or not primary.filename:
-        raise ValidationError(
-            "Chưa chọn tệp hợp đồng — cần đúng 1 tệp .docx", code="file_required"
-        )
+        raise ValidationError("Chưa chọn tệp hợp đồng — cần đúng 1 tệp .docx", code="file_required")
     if reference_files:
         # Không im lặng bỏ qua: nói rõ để người dùng không tưởng đã đính kèm được
         raise ValidationError(
@@ -151,9 +168,10 @@ def create_review(
         prompt=prompt,
     )
 
-    # M1 chạy đồng bộ tầng rule-based. Vòng G4 đẩy sang Celery và trạng thái sẽ
-    # đi qua queued → processing thật.
-    service.run_rule_based_review(db, review)
+    # Đẩy vào hàng đợi rồi trả ngay: AI review đo thực tế mất 38s với checklist
+    # 4 điều khoản, checklist thật sẽ là vài phút — không request nào chờ nổi.
+    # Hàng đợi chết thì chạy đồng bộ để không chặn người dùng (có thể chậm).
+    _start_ai(db, review)
     return _out(db, review)
 
 
@@ -253,7 +271,7 @@ def save_fields(
 def retry_ai(review_id: uuid.UUID, principal: CurrentUser, db: DbSession) -> dict[str, Any]:
     review = service.get_review(db, review_id, principal)
     service.apply_action(db, principal, review, ReviewAction.RETRY_AI)
-    service.run_rule_based_review(db, review)
+    _start_ai(db, review)
     return _out(db, review)
 
 
@@ -265,6 +283,66 @@ def submit_for_approval(
     review = service.get_review(db, review_id, principal)
     service.apply_action(db, principal, review, ReviewAction.SUBMIT_APPROVAL)
     return _out(db, review)
+
+
+class DecisionIn(BaseModel):
+    """
+    A4b: không có "sửa/comment yêu cầu chỉnh + Approve". Từ chối thì bắt buộc
+    nói lý do; duyệt thì comment chỉ là ghi chú.
+    """
+
+    decision: str = Field(pattern="^(approve|reject)$")
+    comment: str = ""
+    feedback: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.post("/{review_id}/manager-decide")
+def manager_decide(
+    review_id: uuid.UUID, payload: DecisionIn, principal: CurrentUser, db: DbSession
+) -> dict[str, Any]:
+    """Purchasing Manager duyệt. Approve → hàng chờ Legal (KHÔNG gọi eContract)."""
+    review = service.get_review(db, review_id, principal)
+    service.decide(
+        db,
+        principal,
+        review,
+        stage="manager",
+        approve=payload.decision == "approve",
+        comment=payload.comment,
+        feedback=payload.feedback,
+    )
+    return _out(db, review)
+
+
+@router.post("/{review_id}/legal-decision")
+def legal_decision(
+    review_id: uuid.UUID, payload: DecisionIn, principal: CurrentUser, db: DbSession
+) -> dict[str, Any]:
+    """
+    Legal duyệt.
+
+    Approve → `pending_markers` và **resolve người ký bên mua** từ bảng Phân
+    quyền ký. Vẫn CHƯA gọi FPT: người tạo phải hoàn tất wizard marker rồi mới
+    đẩy (Blueprint v1.24).
+    """
+    review = service.get_review(db, review_id, principal)
+    service.decide(
+        db,
+        principal,
+        review,
+        stage="legal",
+        approve=payload.decision == "approve",
+        comment=payload.comment,
+        feedback=payload.feedback,
+    )
+    return _out(db, review)
+
+
+@router.get("/{review_id}/signing-flow")
+def signing_flow(review_id: uuid.UUID, principal: CurrentUser, db: DbSession) -> dict[str, Any]:
+    """Xem trước ai sẽ ký — và vì sao Legal chưa duyệt được, nếu chưa sẵn sàng."""
+    review = service.get_review(db, review_id, principal)
+    return service.preview_signing_flow(db, review)
 
 
 @router.get("/{review_id}/files/{kind}")

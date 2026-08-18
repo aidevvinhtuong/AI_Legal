@@ -5,6 +5,7 @@
  */
 
 import JSZip from "jszip";
+import { fetchBinary } from "@/lib/api";
 import type { EditableField } from "@/lib/types";
 
 export type ContentControlLockKind =
@@ -266,9 +267,9 @@ export async function analyzeDocxFromUrl(
   url: string,
   fileName?: string
 ): Promise<DocxFieldInventory> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Không tải được ${url} (${res.status})`);
-  const buf = await res.arrayBuffer();
+  // Qua `fetchBinary` để có Authorization: link file của backend đi qua endpoint
+  // kiểm quyền, fetch trần sẽ nhận 401.
+  const buf = await fetchBinary(url);
   return analyzeDocxContentControls(buf, fileName || url.split("/").pop());
 }
 

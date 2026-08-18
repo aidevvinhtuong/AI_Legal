@@ -97,6 +97,16 @@ services:
       EMBED_BASE_URL: ${EMBED_BASE_URL:-http://171.244.136.217:8387}
       RERANK_BASE_URL: ${RERANK_BASE_URL:-http://171.244.136.217:8389}
       PROMPTS_DIR: /prompts
+      # FPT.eContract — chưa có credentials Demo (D1e). Để trống thì chạy
+      # adapter mock: toàn bộ luồng đẩy/callback/đối soát vẫn thử được, chỉ
+      # không gọi ra ngoài.
+      ECONTRACT_BASE_URL: ${ECONTRACT_BASE_URL:-https://demo.econtract.fpt.com/app}
+      ECONTRACT_CLIENT_ID: ${ECONTRACT_CLIENT_ID:-}
+      ECONTRACT_CLIENT_SECRET: ${ECONTRACT_CLIENT_SECRET:-}
+      ECONTRACT_USERNAME: ${ECONTRACT_USERNAME:-}
+      ECONTRACT_PASSWORD: ${ECONTRACT_PASSWORD:-}
+      ECONTRACT_CALLBACK_SECRET: ${ECONTRACT_CALLBACK_SECRET:-}
+      MARKER_PX_PER_SPACE: ${MARKER_PX_PER_SPACE:-8.0}
     ports:
       - "${API_PORT:-8010}:8000"
     volumes:
@@ -139,9 +149,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: dev
-    # CHƯA DÙNG ở M1: pipeline chạy đồng bộ, `app.workers.celery_app` chưa tồn
-    # tại nên container sẽ crash-loop. Bật khi làm G4:  make up-worker
-    profiles: ["worker"]
     # prefetch-multiplier=1 là BẮT BUỘC: job AI chạy dài, prefetch mặc định
     # khiến một worker ôm nhiều job rồi để chờ, phá vỡ FIFO (ràng buộc C-7).
     command: >
@@ -151,10 +158,44 @@ services:
     volumes:
       - ./backend:/srv/backend
       - ./prompts:/prompts:ro
+    # Ghi đè healthcheck HTTP kế thừa từ Dockerfile: worker không mở cổng nào,
+    # để nguyên thì container luôn "unhealthy" và che mất sự cố thật.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio: { condition: service_healthy }
+
+  # Hẹn giờ: đối soát trạng thái eContract (mỗi 10') và vớt outbox tới hạn
+  # (mỗi 5'). Không có nó thì chỉ còn đường callback — mà callback treo chính
+  # là rủi ro R5.
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: dev
+    command: >
+      celery -A app.workers.celery_app beat -l INFO
+      --schedule /tmp/celerybeat-schedule
+    environment: *app_env
+    volumes:
+      - ./backend:/srv/backend
+      - ./prompts:/prompts:ro
+    # Image không có `pgrep`. Dấu hiệu beat còn sống là file lịch được ghi lại
+    # sau mỗi nhịp — kiểm nó vừa đơn giản vừa đúng thứ cần biết.
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/celerybeat-schedule"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      redis: { condition: service_healthy }
 
 volumes:
   pgdata:

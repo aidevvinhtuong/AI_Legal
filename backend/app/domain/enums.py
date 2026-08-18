@@ -38,9 +38,7 @@ DEFAULT_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
         {Permission.TASK, Permission.CONTRACTS, Permission.CONTRACTS_CREATE}
     ),
     UserRole.PURCHASING_MANAGER: frozenset({Permission.TASK, Permission.CONTRACTS}),
-    UserRole.LEGAL: frozenset(
-        {Permission.TASK, Permission.CONTRACTS, Permission.CONTRACT_CONFIG}
-    ),
+    UserRole.LEGAL: frozenset({Permission.TASK, Permission.CONTRACTS, Permission.CONTRACT_CONFIG}),
     UserRole.IT: frozenset(Permission),
 }
 

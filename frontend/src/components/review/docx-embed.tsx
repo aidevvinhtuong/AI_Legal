@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { Loader2 } from "lucide-react";
+import { fetchBinary } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   applyDocxInlineDiffs,
@@ -68,11 +69,9 @@ export function DocxEmbed({
 
     (async () => {
       try {
-        const res = await fetch(src);
-        if (!res.ok) {
-          throw new Error(`Không tải được file (${res.status}): ${src}`);
-        }
-        const buf = await res.arrayBuffer();
+        // Link file đi qua endpoint kiểm quyền của backend, KHÔNG phải
+        // presigned URL trần — nên phải gửi kèm Bearer token.
+        const buf = await fetchBinary(src);
         if (cancelled) return;
         await renderAsync(buf, host, undefined, {
           className: "docx-preview-body",

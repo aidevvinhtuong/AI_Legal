@@ -51,6 +51,7 @@ from app.infra.models import (
     User,
 )
 from app.services.ai.consistency import run_all as run_consistency
+from app.services.config import signing
 from app.services.document.allowlist import FieldChange
 from app.services.document.engine import LxmlDocumentEngine
 from app.services.document.model import FieldInventory, RegionKind
@@ -178,9 +179,7 @@ def load_bundle(db: Session, review: ContractReview) -> ReviewBundle:
     )
     file_by_id = {
         f.id: f
-        for f in db.execute(
-            select(ReviewFile).where(ReviewFile.review_id == review.id)
-        ).scalars()
+        for f in db.execute(select(ReviewFile).where(ReviewFile.review_id == review.id)).scalars()
     }
     versions = [(v, file_by_id.get(v.file_id) if v.file_id else None) for v in versions_rows]
 
@@ -386,6 +385,35 @@ def _push_version(
     return version
 
 
+def record_version(
+    db: Session,
+    *,
+    review: ContractReview,
+    action: VersionAction,
+    principal: Principal | None,
+    file: ReviewFile | None,
+    label: str,
+    inventory: FieldInventory | None = None,
+    field_diff: list[dict[str, Any]] | None = None,
+) -> ReviewVersion:
+    """
+    Cửa công khai của `_push_version` cho các service khác (eContract chèn marker).
+
+    Giữ đúng một chỗ tạo snapshot: nơi khác tự `db.add(ReviewVersion(...))` thì
+    sớm muộn cũng quên dựng lại allow-list từ file mới.
+    """
+    return _push_version(
+        db,
+        review=review,
+        action=action,
+        principal=principal,
+        file=file,
+        label=label,
+        inventory=inventory,
+        field_diff=field_diff,
+    )
+
+
 def _index_fields(
     db: Session,
     *,
@@ -464,10 +492,7 @@ def save_fields(
                 new_value={"reason": rejection.reason, "detail": rejection.detail},
             )
         raise WriteRejectedError(
-            [
-                {"permId": r.perm_id, "reason": r.reason, "detail": r.detail}
-                for r in result.rejected
-            ]
+            [{"permId": r.perm_id, "reason": r.reason, "detail": r.detail} for r in result.rejected]
         )
 
     stored = get_storage().put(
@@ -557,10 +582,21 @@ def build_context(
         owner_has_line_manager=bool(owner and owner.line_manager_id),
         has_unsaved_changes=False,  # lưu thủ công: đã lưu mới có trong DB (A4c)
         ai_job_running=review.status in (ReviewStatus.QUEUED.value, ReviewStatus.PROCESSING.value),
-        markers_valid=False,  # vòng eContract (G6)
-        signing_matrix_ready=False,  # vòng eContract (G6)
+        markers_valid=False,  # wizard gán marker — vòng eContract
+        # Chỉ tính khi ticket đang chờ Legal: resolve ma trận là truy vấn thật,
+        # không nên chạy cho mọi lần đọc danh sách.
+        signing_matrix_ready=(
+            signing_flow_ready(db, review)
+            if review.status == ReviewStatus.PENDING_LEGAL.value
+            else False
+        ),
         comment_provided=False,
     )
+
+
+def signing_flow_ready(db: Session, review: ContractReview) -> bool:
+    flow = signing.resolve(db, review.intake or {})
+    return signing.readiness_error(flow) is None
 
 
 def apply_action(
@@ -591,9 +627,122 @@ def apply_action(
     return review
 
 
-def available_actions(
-    db: Session, review: ContractReview, principal: Principal
-) -> list[str]:
+def decide(
+    db: Session,
+    principal: Principal,
+    review: ContractReview,
+    *,
+    stage: str,  # "manager" | "legal"
+    approve: bool,
+    comment: str = "",
+    feedback: list[dict[str, Any]] | None = None,
+) -> ContractReview:
+    """
+    Manager / Legal duyệt hoặc từ chối.
+
+    Quy tắc cứng A4b: **không có "sửa/comment yêu cầu chỉnh + Approve"**. Mọi
+    yêu cầu Purchasing chỉnh lại đều phải kết thúc bằng Từ chối. Nên khi từ chối
+    thì comment là bắt buộc, còn khi duyệt thì comment chỉ là ghi chú.
+
+    Legal duyệt còn kéo theo một việc: resolve người ký bên mua từ bảng Phân
+    quyền ký và ghim vào ticket. Không khớp dòng nào thì chặn ngay tại đây —
+    để ticket sang `pending_markers` rồi mới phát hiện thì người tạo không tự gỡ
+    được (Blueprint §4.3.2).
+    """
+    items = list(feedback or [])
+    comment = (comment or "").strip()
+    action = {
+        ("manager", True): ReviewAction.MANAGER_APPROVE,
+        ("manager", False): ReviewAction.MANAGER_REJECT,
+        ("legal", True): ReviewAction.LEGAL_APPROVE,
+        ("legal", False): ReviewAction.LEGAL_REJECT,
+    }[(stage, approve)]
+
+    flow = None
+    if approve and stage == "legal":
+        flow = signing.resolve(db, review.intake or {}, org_name=_org_name(db, review))
+
+    apply_action(
+        db,
+        principal,
+        review,
+        action,
+        context_overrides={
+            "comment_provided": bool(comment or items),
+            "signing_matrix_ready": bool(flow and signing.readiness_error(flow) is None),
+        },
+    )
+
+    if not approve:
+        _record_feedback(db, principal, review, comment=comment, items=items)
+        review.version += 1
+        _push_version(
+            db,
+            review=review,
+            action=(
+                VersionAction.MANAGER_REJECT if stage == "manager" else VersionAction.LEGAL_REJECT
+            ),
+            principal=principal,
+            file=None,
+            label=f"Từ chối: {comment[:120]}" if comment else "Từ chối",
+            inventory=None,
+            field_diff=None,
+        )
+    elif flow is not None:
+        review.recipients = flow.recipients
+
+    db.flush()
+    return review
+
+
+def _record_feedback(
+    db: Session,
+    principal: Principal,
+    review: ContractReview,
+    *,
+    comment: str,
+    items: list[dict[str, Any]],
+) -> None:
+    """Comment tổng luôn được lưu thành một mục để Purchasing thấy trên Task."""
+    rows = items or ([{"clauseLabel": "Nhận xét chung", "comment": comment}] if comment else [])
+    for item in rows:
+        db.add(
+            FeedbackItem(
+                review_id=review.id,
+                version_no=review.version,
+                field_id=item.get("fieldId"),
+                clause_label=str(item.get("clauseLabel") or "Nhận xét chung"),
+                comment=str(item.get("comment") or comment),
+                author_id=principal.user_id,
+                author_role=principal.role.value,
+                attachments=item.get("attachments") or [],
+            )
+        )
+    db.flush()
+
+
+def _org_name(db: Session, review: ContractReview) -> str:
+    slug = str((review.intake or {}).get("businessEntityId") or "")
+    if not slug:
+        return ""
+    item = db.execute(
+        select(CatalogItem).where(CatalogItem.kind == "businessEntities", CatalogItem.slug == slug)
+    ).scalar_one_or_none()
+    return item.label if item else ""
+
+
+def preview_signing_flow(db: Session, review: ContractReview) -> dict[str, Any]:
+    """Cho UI xem trước ai sẽ ký, và vì sao chưa duyệt được nếu chưa sẵn sàng."""
+    flow = signing.resolve(db, review.intake or {}, org_name=_org_name(db, review))
+    return {
+        "ready": signing.readiness_error(flow) is None,
+        "reason": signing.readiness_error(flow),
+        "bandLabel": flow.band_label,
+        "recipients": flow.recipients,
+    }
+
+
+def available_actions(db: Session, review: ContractReview, principal: Principal) -> list[str]:
     return [a.value for a in allowed_actions(build_context(db, review, principal))]
 
 
@@ -611,9 +760,7 @@ def run_rule_based_review(db: Session, review: ContractReview) -> ContractReview
     """
     version = _current_version(db, review)
     fields = list(
-        db.execute(
-            select(DocumentField).where(DocumentField.version_id == version.id)
-        ).scalars()
+        db.execute(select(DocumentField).where(DocumentField.version_id == version.id)).scalars()
     )
 
     run = AiRun(
@@ -794,6 +941,7 @@ __all__ = [
     "load_bundle",
     "next_document_number",
     "queue_position",
+    "record_version",
     "run_rule_based_review",
     "save_fields",
 ]

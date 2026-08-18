@@ -88,9 +88,7 @@ class ContractTemplate(UuidPkMixin, TimestampMixin, Base):
     # Bản đầy đủ của TemplateBinding — regions + locked_paragraphs
     binding: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
     # permId → tên nghiệp vụ do Legal khai (PH-2: permId là số ngẫu nhiên vô nghĩa)
-    field_labels: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, server_default="{}"
-    )
+    field_labels: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default="{}")
 
     is_active: Mapped[bool] = mapped_column(nullable=False, server_default="true")
     registered_by: Mapped[uuid.UUID | None] = mapped_column(

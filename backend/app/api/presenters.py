@@ -230,13 +230,15 @@ def review_out(
         #
         # `reviewed` trả link ngay cả khi chưa có bản sửa nào: endpoint tải tự
         # lùi về bản gốc. FE khỏi phải xử lý null ở mọi chỗ nhúng preview.
-        "originalDocxUrl": f"{API_PREFIX}/reviews/{review.id}/files/original"
-        if original
-        else None,
+        "originalDocxUrl": f"{API_PREFIX}/reviews/{review.id}/files/original" if original else None,
         "reviewedDocxUrl": (
-            f"{API_PREFIX}/reviews/{review.id}/files/reviewed"
-            if (reviewed or original)
-            else None
+            f"{API_PREFIX}/reviews/{review.id}/files/reviewed" if (reviewed or original) else None
+        ),
+        # Bản ĐÃ CHÈN MARKER gửi FPT. Là tệp RIÊNG, không thay bản gốc: chèn
+        # marker về mặt kỹ thuật là ghi vào vùng khoá nên chỉ được tồn tại trên
+        # bản xuất bản để trình ký (xem services/document/marker.py).
+        "econtractDocxUrl": (
+            f"{API_PREFIX}/reviews/{review.id}/files/econtract" if files.get("econtract") else None
         ),
         "attachments": [],
         "prompt": review.prompt,
@@ -254,7 +256,9 @@ def review_out(
         "fields": [field_out(f) for f in (fields or [])],
         "proposals": [proposal_out(p) for p in (proposals or [])],
         "messages": [message_out(m) for m in (messages or [])],
-        "recipients": [],
+        # Người ký bên mua do Legal duyệt resolve từ bảng Phân quyền ký; wizard
+        # eContract (vòng sau) bổ sung bên đối tác vào cùng danh sách này.
+        "recipients": review.recipients or [],
         "feedback": [feedback_out(f) for f in (feedback or [])],
         "contractInsight": insight_out(review, findings or []),
         "confidenceDetail": {

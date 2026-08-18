@@ -33,6 +33,18 @@ x-app-env: &app_env
   EMBED_BASE_URL: ${EMBED_BASE_URL:?}
   RERANK_BASE_URL: ${RERANK_BASE_URL:?}
   PROMPTS_DIR: /prompts
+  # FPT.eContract — để trống thì chạy adapter mock, KHÔNG gọi ra ngoài.
+  # `?` cho callback secret: ở prod mà thiếu khoá thì mọi callback bị từ chối,
+  # nên thà dừng lúc khởi động còn hơn để hợp đồng kẹt ở `syncing_econtract`.
+  ECONTRACT_BASE_URL: ${ECONTRACT_BASE_URL:-https://econtract.fpt.com/app}
+  ECONTRACT_CLIENT_ID: ${ECONTRACT_CLIENT_ID:-}
+  ECONTRACT_CLIENT_SECRET: ${ECONTRACT_CLIENT_SECRET:-}
+  ECONTRACT_USERNAME: ${ECONTRACT_USERNAME:-}
+  ECONTRACT_PASSWORD: ${ECONTRACT_PASSWORD:-}
+  ECONTRACT_SELECTOR: ${ECONTRACT_SELECTOR:-}
+  ECONTRACT_DOC_TYPE_CODE: ${ECONTRACT_DOC_TYPE_CODE:-2}
+  ECONTRACT_CALLBACK_SECRET: ${ECONTRACT_CALLBACK_SECRET:-}
+  MARKER_PX_PER_SPACE: ${MARKER_PX_PER_SPACE:-8.0}
 
 x-app-build: &app_build
   context: ./backend
@@ -41,7 +53,9 @@ x-app-build: &app_build
   args:
     GIT_SHA: ${GIT_SHA:-unknown}
     BUILD_TIME: ${BUILD_TIME:-unknown}
-    # Bật khi triển khai vòng eContract (cần convert .docx → PDF)
+    # KHÔNG cần cho eContract: FPT đã chốt nhận `.docx` base64, không convert
+    # PDF (câu hỏi D1c đã đóng). Chỉ bật khi cần render để kiểm "giữ format" —
+    # image nặng thêm ~400MB.
     WITH_LIBREOFFICE: ${WITH_LIBREOFFICE:-0}
 
 x-logging: &logging
@@ -217,6 +231,23 @@ services:
       resources:
         limits:
           memory: ${WORKER_MEMORY_LIMIT:-4g}
+    logging: *logging
+
+  # Bộ hẹn giờ: đối soát trạng thái eContract và vớt outbox tới hạn.
+  # ĐÚNG MỘT bản — nhiều beat cùng chạy là mỗi lịch bắn nhiều lần.
+  beat:
+    build: *app_build
+    image: ailegal-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    command: >
+      celery -A app.workers.celery_app beat -l INFO
+      --schedule /tmp/celerybeat-schedule
+    environment: *app_env
+    depends_on:
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 1
     logging: *logging
 
 volumes:

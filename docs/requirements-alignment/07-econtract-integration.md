@@ -169,10 +169,10 @@ Thứ tự ký: bên mua trước (`parties.order`), trong bên theo trên→dư
 |----|---------|
 | D1a | Giá trị `selector` chính thức cấp cho hệ thống mình (hiện placeholder `flow_start_AI_LEGAL_...`)? Tên "HỆ THỐNG KHÁCH HÀNG" trong selector là gì? |
 | D1b | `docTypeCode` — danh sách mã loại tài liệu cấu hình trên portal FPT? Ai cấu hình headerFields trên portal? |
-| D1c | Tài liệu API mô tả tạo HĐ theo **file PDF** đánh dấu ô ký, ví dụ request lại gửi `.docx` — FPT nhận `.docx` trực tiếp hay mình phải convert PDF trước khi gửi? Ảnh hưởng pipeline "giữ format". |
+| ~~D1c~~ | **ĐÃ CHỐT 14/08/2026: FPT nhận `.docx` dạng base64, KHÔNG convert PDF.** Hệ quả: (a) bỏ LibreOffice khỏi đường eContract; (b) toạ độ trang không ánh xạ được sang OOXML → marker neo bằng `w14:paraId` thay vì `(page, xPct, yPct)` — xem `TS-13-fe-marker-contract.md`. |
 | D1d | Callback: FPT cần mình cung cấp endpoint gì (URL, auth, retry policy)? Có hỗ trợ sFTP nhận file ký như Rev12 mô tả không, hay chỉ callback? |
 | D1e | Môi trường Demo: xin credentials (clientid/secret + account) để chạy integration test EC-07..09 trong Sprint 1. |
-| D1f | UI gán vị trí marker: Sprint 1 dùng danh sách vị trí định sẵn (như demo) hay bắt buộc click-chọn-vị-trí trên preview tài liệu? (liên quan cách backend chèn marker vào đúng toạ độ) |
+| ~~D1f~~ | **ĐÃ GIẢI 14/08/2026:** kéo-thả có **điểm hít** — FE lấy danh sách đoạn neo từ `GET /reviews/{id}/marker-anchors` (backend nhận diện khối chữ ký bằng dấu hiệu cấu trúc), thả xong gửi `paraId`. Không dùng toạ độ, không dùng danh sách vị trí cứng. |
 
 ## 5. Định nghĩa hoàn thành tính năng (Sprint 1)
 

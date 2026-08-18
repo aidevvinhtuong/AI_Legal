@@ -28,9 +28,7 @@ BOB = uuid4()  # purchasing khác
 
 
 def principal(role: UserRole, user_id=None, **kwargs) -> Principal:
-    return Principal.build(
-        user_id=user_id or uuid4(), username=role.value, role=role, **kwargs
-    )
+    return Principal.build(user_id=user_id or uuid4(), username=role.value, role=role, **kwargs)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

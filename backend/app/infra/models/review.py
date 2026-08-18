@@ -73,9 +73,7 @@ class ContractReview(UuidPkMixin, TimestampMixin, RowVersionMixin, Base):
     prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
-    confidence: Mapped[float] = mapped_column(
-        Numeric(5, 2), nullable=False, server_default="0"
-    )
+    confidence: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="0")
     fairness: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, server_default="0")
     ai_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
@@ -86,6 +84,11 @@ class ContractReview(UuidPkMixin, TimestampMixin, RowVersionMixin, Base):
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     econtract: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    # Người ký resolve từ bảng Phân quyền ký lúc Legal duyệt. Wizard eContract
+    # (vòng sau) sẽ bổ sung bên đối tác vào đây.
+    recipients: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
 
 
 class ReviewFile(UuidPkMixin, TimestampMixin, Base):

@@ -1,4 +1,4 @@
-import { api, ECONTRACT_LIVE, USE_MOCK } from "@/lib/api";
+import { api, fetchBinary, ECONTRACT_LIVE, USE_MOCK } from "@/lib/api";
 import {
   loadFormLists,
   type CodeLabelOption,
@@ -32,6 +32,8 @@ import type {
   DocumentIntakeMeta,
   EcontractSignType,
   EditableField,
+  MarkerAnchor,
+  MarkerIssue,
   MarkerType,
   SignRecipient,
   StructuredFeedbackItem,
@@ -1221,8 +1223,13 @@ export async function saveSigningRecipients(
 
 /**
  * Người tạo hoàn tất kéo-thả marker → đẩy eContract.
- * - USE_MOCK && !ECONTRACT_LIVE: giả lập sync (không cần BE).
- * - Ngược lại: POST /api/econtract/push (BE).
+ *
+ * KHÔNG gửi username/password lên server nữa. Credentials tích hợp FPT thuộc
+ * về server, đọc từ `.env`, và không bao giờ được đi qua trình duyệt — bản
+ * demo cũ lấy mật khẩu đăng nhập của người dùng rồi POST kèm mỗi lần Submit.
+ *
+ * Server chỉ ghi outbox rồi trả ngay; worker mới gọi FPT. Nên response về là
+ * `syncing_econtract`, chưa phải `signed`.
  */
 export async function completeMarkersAndPushEcontract(
   id: string
@@ -1266,62 +1273,88 @@ export async function completeMarkersAndPushEcontract(
     return latest;
   }
 
-  const login = getEcontractUserLogin();
-  if (!login) {
-    throw new Error(
-      "Thiếu tài khoản đăng nhập để gọi eContract — đăng nhập lại rồi Submit"
-    );
-  }
-
-  const data = (await api.post("/api/v1/econtract/push", {
-    reviewId: id,
-    review,
-    username: login.username,
-    password: login.password,
-  })) as {
-    ok?: boolean;
-    message?: string;
-    econtract?: ContractReview["econtract"];
-    review?: ContractReview;
-  };
-
-  if (data.ok === false) {
-    throw new Error(data.message || "Đẩy eContract thất bại");
-  }
+  const data = (await api.post(
+    `/api/v1/reviews/${id}/econtract/push`
+  )) as ContractReview & { econtractQueued?: boolean; isMock?: boolean };
 
   if (USE_MOCK) {
     const latest = getReview(id);
     if (!latest) throw new Error("Not found");
-    latest.status = "syncing_econtract";
+    latest.status = data.status ?? "syncing_econtract";
     latest.econtract = data.econtract;
     latest.updatedAt = new Date().toISOString();
-    if (data.econtract?.envelopeId) {
-      setTimeout(() => {
-        const r = getReview(id);
-        if (r && r.status === "syncing_econtract") {
-          r.status = "signed";
-          if (r.econtract) r.econtract.envStatus = "Completed";
-          r.updatedAt = new Date().toISOString();
-          upsertReview(r);
-        }
-      }, 3000);
-    }
     upsertReview(latest);
     return latest;
   }
 
-  if (data.review) return data.review;
-  return getReviewById(id);
+  return data;
 }
 
-/** Gán marker bằng kéo-thả (trang + tọa độ %). */
+/** Huỷ hợp đồng đang trình ký. FPT bắt buộc có lý do, người ký sẽ nhìn thấy. */
+export async function cancelEcontract(
+  id: string,
+  reason: string
+): Promise<ContractReview> {
+  return api.post(`/api/v1/reviews/${id}/econtract/cancel`, { reason });
+}
+
+/** Trạng thái đẩy: envelope, số lần thử, lỗi cuối. Dùng cho màn theo dõi. */
+export async function getEcontractStatus(id: string): Promise<{
+  status: string;
+  econtract: ContractReview["econtract"];
+  isMock: boolean;
+  outbox: {
+    status: string;
+    attempts: number;
+    envelopeId: string | null;
+    lastError: string | null;
+    lastErrorCode: string | null;
+    nextAttemptAt: string | null;
+  } | null;
+}> {
+  return api.get(`/api/v1/reviews/${id}/econtract`);
+}
+
+/**
+ * Danh sách vị trí neo marker, đọc từ chính tài liệu.
+ *
+ * Đây là thứ thay cho "trang + toạ độ": người dùng kéo-thả rồi UI hít vào một
+ * anchor trong danh sách này, và gửi `paraId` của nó lên BE.
+ */
+export async function getMarkerAnchors(
+  id: string,
+  opts?: { recommendedOnly?: boolean }
+): Promise<MarkerAnchor[]> {
+  if (USE_MOCK) {
+    await delay(80);
+    return [];
+  }
+  const query = opts?.recommendedOnly ? "?recommended_only=true" : "";
+  const body = (await api.get(
+    `/api/v1/reviews/${id}/marker-anchors${query}`
+  )) as { anchors: MarkerAnchor[] };
+  return body.anchors ?? [];
+}
+
+/**
+ * Đặt ô ký cho một người nhận.
+ *
+ * `anchor.paraId` là trường quan trọng nhất — nó quyết định marker được ghi vào
+ * đâu trong `.docx`. `page`/`xPct`/`yPct` chỉ để UI vẽ lại ô ký lên preview;
+ * gửi mà thiếu `paraId` thì BE phải suy ra và trả `marker.approximated = true`.
+ */
 export async function placeMarkerOnDocument(
   id: string,
   recipientId: string,
   placement: {
-    page: number;
-    xPct: number;
-    yPct: number;
+    anchor: {
+      paraId: string;
+      align?: "left" | "center" | "right";
+      position?: "after" | "before";
+      page?: number;
+      xPct?: number;
+      yPct?: number;
+    };
     height?: number;
     width?: number;
     sizePreset?: "default" | "large";
@@ -1343,36 +1376,37 @@ export async function placeMarkerOnDocument(
       placement.signType || target.signType || "sign_fca.passcode";
     const mt = markerTypeForSignType(signType as EcontractSignType);
     if (!mt) throw new Error("Hình thức ký không hợp lệ cho marker");
+    const sizePreset =
+      placement.sizePreset || target.marker?.sizePreset || "default";
     const height =
       placement.height ??
       target.marker?.height ??
-      (target.marker?.sizePreset === "large" ? 140 : 98);
+      (sizePreset === "large" ? 140 : 98);
     const width =
       placement.width ??
       target.marker?.width ??
-      (target.marker?.sizePreset === "large" ? 220 : 164);
-    const sizePreset =
-      placement.sizePreset || target.marker?.sizePreset || "default";
-    const positionLabel = `Trang ${placement.page} · (${Math.round(placement.xPct)}%, ${Math.round(placement.yPct)}%)`;
-    review.recipients = review.recipients.map((r) => {
-      if (r.id !== recipientId) return r;
-      return {
-        ...r,
-        signType,
-        markerType: mt,
-        marker: {
-          id: `${mt}_${r.id}`,
-          type: mt,
-          height,
-          width,
-          sizePreset,
-          positionLabel,
-          page: placement.page,
-          xPct: placement.xPct,
-          yPct: placement.yPct,
-        },
-      };
-    });
+      (sizePreset === "large" ? 220 : 164);
+    review.recipients = review.recipients.map((r) =>
+      r.id !== recipientId
+        ? r
+        : {
+            ...r,
+            signType,
+            markerType: mt,
+            marker: {
+              id: `${mt}_${r.id}`,
+              type: mt,
+              height,
+              width,
+              sizePreset,
+              positionLabel: placement.anchor.paraId,
+              paraId: placement.anchor.paraId,
+              align: placement.anchor.align ?? "center",
+              position: placement.anchor.position ?? "after",
+              approximated: !placement.anchor.paraId,
+            },
+          }
+    );
     review.updatedAt = new Date().toISOString();
     upsertReview(review);
     return review;
@@ -1381,6 +1415,37 @@ export async function placeMarkerOnDocument(
     recipientId,
     ...placement,
   });
+}
+
+/** Gỡ ô ký của một người nhận. */
+export async function removeMarker(
+  id: string,
+  recipientId: string
+): Promise<ContractReview> {
+  if (USE_MOCK) {
+    return updateRecipient(id, recipientId, { marker: undefined });
+  }
+  return api.delete(`/api/v1/reviews/${id}/markers/${recipientId}`);
+}
+
+/** Xem trước lỗi marker bằng ĐÚNG bộ luật server sẽ dùng để chặn Submit. */
+export async function validateMarkersOnServer(
+  id: string
+): Promise<MarkerIssue[]> {
+  if (USE_MOCK) {
+    const review = getReview(id);
+    return review
+      ? validateMarkers(review.recipients).map((message) => ({
+          code: "validation",
+          message,
+        }))
+      : [];
+  }
+  const body = (await api.get(`/api/v1/reviews/${id}/markers/validate`)) as {
+    ok: boolean;
+    issues: MarkerIssue[];
+  };
+  return body.issues ?? [];
 }
 
 /**
@@ -1438,11 +1503,9 @@ export async function applySigningMatrix(
 }
 
 async function fetchDocxBytes(url: string): Promise<ArrayBuffer> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Không tải được file tham chiếu (${res.status}): ${url}`);
-  }
-  return res.arrayBuffer();
+  // Cùng lý do với `docx-embed`: endpoint file của backend kiểm quyền, nên
+  // fetch trần sẽ nhận 401.
+  return fetchBinary(url);
 }
 
 /**

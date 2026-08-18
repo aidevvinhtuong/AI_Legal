@@ -206,9 +206,7 @@ def verify(
         issues.append(
             FieldStructureIssue(
                 type="count_mismatch",
-                location=(
-                    f"Có {len(got_ids)} vùng mở, template có {binding.open_region_count}"
-                ),
+                location=(f"Có {len(got_ids)} vùng mở, template có {binding.open_region_count}"),
             )
         )
 
@@ -302,8 +300,7 @@ def _locked_diffs(
                     field_id=para_id,
                     location=actual.numbering_label or f"Đoạn {actual.ordinal}",
                     diff_preview=(
-                        f"Đoạn khoá lạ được thêm: "
-                        f"“{normalize(actual.text)[:PREVIEW_CHARS]}”"
+                        f"Đoạn khoá lạ được thêm: “{normalize(actual.text)[:PREVIEW_CHARS]}”"
                     ),
                 )
             )

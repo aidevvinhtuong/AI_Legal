@@ -217,6 +217,7 @@ def test_binding_giu_du_thong_tin_de_bao_loi_cu_the(blob, binding):
 
 def test_binding_on_dinh_qua_vong_serialize(blob, binding):
     """Ghi lại document.xml mà không sửa nội dung thì binding không được đổi."""
+
     def touch(pkg: DocxPackage) -> None:
         pkg.tree(DOCUMENT_PART)
         pkg.mark_dirty(DOCUMENT_PART)

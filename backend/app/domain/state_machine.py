@@ -56,8 +56,7 @@ def _no_guard(_: TransitionContext) -> str | None:
 def _is_full_kind(ctx: TransitionContext) -> str | None:
     if ctx.kind is ReviewKind.QUICK:
         return (
-            "ticket tạo từ màn «Review hợp đồng» chỉ dùng để AI review, "
-            "không đi tiếp luồng duyệt"
+            "ticket tạo từ màn «Review hợp đồng» chỉ dùng để AI review, không đi tiếp luồng duyệt"
         )
     return None
 
@@ -158,8 +157,10 @@ TRANSITIONS: tuple[Transition, ...] = (
         target=ReviewStatus.PENDING_MANAGER,
         actors=_OWNERS,
         owner_only=True,
-        guard=lambda ctx: _ready_to_submit(ctx)
-        or (None if ctx.owner_has_line_manager else "owner không có Line Manager"),
+        guard=lambda ctx: (
+            _ready_to_submit(ctx)
+            or (None if ctx.owner_has_line_manager else "owner không có Line Manager")
+        ),
         note="Có Line Manager → hàng chờ Manager",
     ),
     Transition(
@@ -168,8 +169,10 @@ TRANSITIONS: tuple[Transition, ...] = (
         target=ReviewStatus.PENDING_LEGAL,
         actors=_OWNERS,
         owner_only=True,
-        guard=lambda ctx: _ready_to_submit(ctx)
-        or ("owner có Line Manager" if ctx.owner_has_line_manager else None),
+        guard=lambda ctx: (
+            _ready_to_submit(ctx)
+            or ("owner có Line Manager" if ctx.owner_has_line_manager else None)
+        ),
         note="Không có Line Manager → thẳng hàng chờ Legal",
     ),
     Transition(
@@ -178,8 +181,10 @@ TRANSITIONS: tuple[Transition, ...] = (
         target=ReviewStatus.PENDING_MANAGER,
         actors=_OWNERS,
         owner_only=True,
-        guard=lambda ctx: _ready_to_submit(ctx)
-        or (None if ctx.owner_has_line_manager else "owner không có Line Manager"),
+        guard=lambda ctx: (
+            _ready_to_submit(ctx)
+            or (None if ctx.owner_has_line_manager else "owner không có Line Manager")
+        ),
         note="Sửa xong gửi lại — version bump",
     ),
     Transition(
@@ -188,8 +193,10 @@ TRANSITIONS: tuple[Transition, ...] = (
         target=ReviewStatus.PENDING_LEGAL,
         actors=_OWNERS,
         owner_only=True,
-        guard=lambda ctx: _ready_to_submit(ctx)
-        or ("owner có Line Manager" if ctx.owner_has_line_manager else None),
+        guard=lambda ctx: (
+            _ready_to_submit(ctx)
+            or ("owner có Line Manager" if ctx.owner_has_line_manager else None)
+        ),
     ),
     # ── Manager ───────────────────────────────────────────────────────────
     Transition(

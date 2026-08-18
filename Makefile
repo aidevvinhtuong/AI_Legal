@@ -123,12 +123,12 @@ seed: ## Nạp dữ liệu mẫu (user, loại HĐ, template HDDV)
 
 # ── Kiểm thử ──────────────────────────────────────────────────────────────
 .PHONY: test
-test: ## Chạy toàn bộ test
-	cd $(BACKEND) && ../$(PYTEST) -q
+test: ## Chạy toàn bộ test (AI chạy nội tuyến, có gọi model thật)
+	cd $(BACKEND) && AI_RUN_INLINE=true ../$(PYTEST) -q
 
 .PHONY: test-unit
 test-unit: ## Chỉ unit test (không cần hạ tầng)
-	cd $(BACKEND) && ../$(PYTEST) -q -m "not integration and not fidelity and not models"
+	cd $(BACKEND) && AI_RUN_INLINE=true ../$(PYTEST) -q -m "not integration and not fidelity and not models"
 
 .PHONY: test-fx
 test-fx: ## Test giữ format trên .docx thật
@@ -175,3 +175,7 @@ dev: ## Chạy API ở local, dùng hạ tầng trong Docker
 dev-worker: ## Chạy Celery worker ở local
 	cd $(BACKEND) && ../$(VENV)/bin/celery -A app.workers.celery_app worker \
 	  -Q ai,interactive,io -c 2 --prefetch-multiplier=1 -l INFO
+
+.PHONY: test-fast
+test-fast: ## Test không gọi endpoint model (nhanh, dùng cho CI)
+	cd $(BACKEND) && AI_SEMANTIC_ENABLED=false AI_RUN_INLINE=true ../$(PYTEST) -q

@@ -122,8 +122,7 @@ def _compare_raw_parts(
                     part=part,
                     location="(toàn part)",
                     detail=(
-                        f"nội dung đổi: {len(before.raw(part)):,} → "
-                        f"{len(after.raw(part)):,} byte"
+                        f"nội dung đổi: {len(before.raw(part)):,} → {len(after.raw(part)):,} byte"
                     ),
                 )
             )
@@ -192,9 +191,7 @@ def _compare_elements(
         return
 
     if a.tag != b.tag:
-        out.append(
-            XmlDiff(DOCUMENT_PART, path, f"thẻ đổi: {_name(a.tag)} → {_name(b.tag)}")
-        )
+        out.append(XmlDiff(DOCUMENT_PART, path, f"thẻ đổi: {_name(a.tag)} → {_name(b.tag)}"))
         return
 
     attrs_a = _attrs(a)
@@ -213,9 +210,7 @@ def _compare_elements(
                     return
 
     if _text(a) != _text(b):
-        out.append(
-            XmlDiff(DOCUMENT_PART, path, f"text đổi: {_text(a)[:60]!r} → {_text(b)[:60]!r}")
-        )
+        out.append(XmlDiff(DOCUMENT_PART, path, f"text đổi: {_text(a)[:60]!r} → {_text(b)[:60]!r}"))
 
     children_a = _children(a)
     children_b = _children(b)

@@ -197,9 +197,7 @@ def test_fx07_sua_mot_vung_khong_dung_vung_kia_trong_cung_doan(engine):
     )
 
     text = after.paragraph_by_id(para.para_id).text
-    assert "Bên Bán giao hàng" in text and "ngày kể từ ngày" in text, (
-        "phần khoá của câu bị mất"
-    )
+    assert "Bên Bán giao hàng" in text and "ngày kể từ ngày" in text, "phần khoá của câu bị mất"
 
 
 def test_fx07_writer_inline_tu_choi_vung_nhieu_doan():

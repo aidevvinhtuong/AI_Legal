@@ -181,9 +181,7 @@ def check_amount_in_words(text: str, *, field_id: str | None = None) -> list[Con
     return issues
 
 
-def check_required_field_filled(
-    field_id: str, label: str, value: str
-) -> list[ConsistencyIssue]:
+def check_required_field_filled(field_id: str, label: str, value: str) -> list[ConsistencyIssue]:
     """Ô còn `______` là hợp đồng chưa điền xong — lỗi hay gặp và dễ lọt nhất."""
     if value and not _PLACEHOLDER.match(value):
         return []

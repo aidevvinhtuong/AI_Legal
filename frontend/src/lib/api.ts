@@ -131,6 +131,39 @@ export async function fetchApi(path: string, options: FetchOptions = {}) {
   }
 }
 
+/**
+ * Tải file nhị phân (`.docx`) KÈM Authorization.
+ *
+ * Không dùng `fetch(url)` trần cho những link này: backend cố tình phục vụ file
+ * qua endpoint kiểm quyền chứ không phải presigned URL trần, nên thiếu header
+ * là 401. Đây đúng là lỗi đã gặp ở màn preview — `docx-embed` fetch thẳng và
+ * nhận `401 /api/v1/reviews/{id}/files/reviewed`.
+ */
+export async function fetchBinary(path: string): Promise<ArrayBuffer> {
+  const url = resolveUrl(path);
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") || "" : "";
+
+  const response = await fetch(url, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (response.status === 401) {
+    // Cùng hành vi với fetchApi: hết phiên thì về màn đăng nhập, không để
+    // người dùng nhìn một khung trắng và tự đoán.
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.href = "/login";
+    }
+    throw new ApiError(401, "Phiên đăng nhập đã hết hạn");
+  }
+  if (!response.ok) {
+    throw new ApiError(response.status, `Không tải được file (${response.status})`);
+  }
+  return response.arrayBuffer();
+}
+
 export const api = {
   get: (url: string, options?: Omit<FetchOptions, "method">) =>
     fetchApi(url, { ...options, method: "GET" }),

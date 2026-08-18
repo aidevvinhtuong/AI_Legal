@@ -21,9 +21,7 @@ from app.services.document.model import FieldDescriptor, RegionKind
 
 # Ký tự XML 1.0 không cho phép — lọt xuống lxml sẽ ném ValueError ở giữa vòng
 # ghi, lúc đó cây đã bị sửa dở. Chặn sớm để mọi thay đổi là all-or-nothing.
-_ILLEGAL = frozenset(
-    chr(c) for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)
-) | frozenset("￾￿")
+_ILLEGAL = frozenset(chr(c) for c in range(0x20) if c not in (0x09, 0x0A, 0x0D)) | frozenset("￾￿")
 
 
 @dataclass(frozen=True)

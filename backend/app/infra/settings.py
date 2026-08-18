@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     # ── Tham số pipeline AI ───────────────────────────────────────────────
     # Model embedding hiện tại CHỈ có dense (không sparse như BGE-M3), nên
     # tầng từ vựng dùng BM25 tính tại chỗ. Xem TS-12 mục II.3.
+    # Van tổng cho tầng ngữ nghĩa. Tắt ⇒ pipeline chỉ chạy rule-based, KHÔNG
+    # gọi mạng. Dùng khi endpoint model bảo trì, và trong CI để test nhanh và
+    # không phụ thuộc dịch vụ ngoài.
+    AI_SEMANTIC_ENABLED: bool = True
+
+    # Chạy AI ngay trong request thay vì đẩy vào hàng đợi. CHỈ dùng cho test và
+    # cho máy dev không bật worker — ở thật thì request sẽ treo vài phút.
+    AI_RUN_INLINE: bool = False
+
     MATCH_DENSE_WEIGHT: float = 0.65
     MATCH_BM25_WEIGHT: float = 0.35
     MATCH_THRESHOLD: float = 0.45
@@ -82,6 +91,30 @@ class Settings(BaseSettings):
     MAX_UPLOAD_BYTES: int = 20 * 1024 * 1024
     MAX_UNZIP_BYTES: int = 100 * 1024 * 1024  # chống zip bomb
     MAX_ZIP_ENTRIES: int = 500
+
+    # ── Marker ký số ──────────────────────────────────────────────────────
+    # Bề rộng ô ký = khoảng cách giữa hai dấu `#`, chỉ điều khiển được bằng SỐ
+    # KHOẢNG TRẮNG. Hệ số quy đổi px → space này **chưa hiệu chuẩn** — phải đo
+    # trên môi trường Demo của FPT (ca EC-07) rồi chỉnh ở đây.
+    MARKER_PX_PER_SPACE: float = 8.0
+
+    # ── FPT.eContract ─────────────────────────────────────────────────────
+    # Chưa có credentials môi trường Demo (câu hỏi mở D1e). Để trống ⇒ chạy
+    # adapter mock: luồng nghiệp vụ, outbox, đối soát vẫn test được đầy đủ.
+    ECONTRACT_BASE_URL: str = "https://demo.econtract.fpt.com/app"
+    ECONTRACT_CLIENT_ID: str = ""
+    ECONTRACT_CLIENT_SECRET: str = ""
+    ECONTRACT_USERNAME: str = ""
+    ECONTRACT_PASSWORD: str = ""
+    # D1a/D1b chưa chốt — giá trị dưới đây là placeholder theo tài liệu FPT
+    ECONTRACT_SELECTOR: str = "flow_start_AI_LEGAL_create_auto_determine_econtract_integrate"
+    ECONTRACT_CANCEL_SELECTOR: str = "flow_processing_AI_LEGAL_cancel_contract"
+    ECONTRACT_DOC_TYPE_CODE: int = 2
+    ECONTRACT_TIMEOUT: int = 60
+    ECONTRACT_MAX_ATTEMPTS: int = 5
+    # Chữ ký HMAC của callback FPT. Rỗng ⇒ chỉ chấp nhận callback ở môi trường
+    # dev; ở prod thiếu khoá là từ chối, không có đường tắt.
+    ECONTRACT_CALLBACK_SECRET: str = ""
 
     # ── Prompt (quản lý bằng Git) ─────────────────────────────────────────
     PROMPTS_DIR: str = "../prompts"
@@ -109,6 +142,16 @@ class Settings(BaseSettings):
     @property
     def is_prod(self) -> bool:
         return self.ENV == "prod"
+
+    @property
+    def econtract_configured(self) -> bool:
+        """Đủ credentials để gọi FPT thật. Thiếu ⇒ dùng adapter mock."""
+        return bool(
+            self.ECONTRACT_CLIENT_ID
+            and self.ECONTRACT_CLIENT_SECRET
+            and self.ECONTRACT_USERNAME
+            and self.ECONTRACT_PASSWORD
+        )
 
 
 @lru_cache

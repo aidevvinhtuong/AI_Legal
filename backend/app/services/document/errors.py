@@ -79,8 +79,7 @@ class EmptyParagraphNotWritableError(DocumentWriteError):
 
     def __init__(self, perm_id: str, index: int) -> None:
         super().__init__(
-            f"vùng {perm_id}: đoạn thứ {index} không có định dạng để kế thừa, "
-            "chỉ nhận chuỗi rỗng"
+            f"vùng {perm_id}: đoạn thứ {index} không có định dạng để kế thừa, chỉ nhận chuỗi rỗng"
         )
         self.perm_id = perm_id
         self.index = index
@@ -91,4 +90,30 @@ class PostcheckFailedError(DocumentWriteError):
 
     def __init__(self, diffs: list) -> None:  # list[XmlDiff] — tránh import vòng
         super().__init__(f"hậu kiểm phát hiện {len(diffs)} thay đổi ngoài vùng cho phép")
+        self.diffs = diffs
+
+
+class MarkerAnchorNotFoundError(DocumentWriteError):
+    """
+    Không tìm thấy đoạn neo của marker.
+
+    Xảy ra khi tài liệu đã sang version mới mà FE còn giữ `paraId` cũ. Không
+    được đoán bừa sang đoạn khác: chữ ký sẽ nằm sai chỗ trong hợp đồng thật.
+    """
+
+    def __init__(self, para_id: str) -> None:
+        super().__init__(f"không tìm thấy đoạn có paraId={para_id} để neo marker")
+        self.para_id = para_id
+
+
+class MarkerPostcheckFailedError(DocumentWriteError):
+    """
+    Bản xuất bản để ký khác bản gốc ở chỗ KHÔNG PHẢI là marker vừa chèn.
+
+    Đây là biến thể của C-3 cho đường eContract: chèn marker được phép thêm
+    đúng những đoạn marker, không được đụng một byte nào khác.
+    """
+
+    def __init__(self, diffs: list) -> None:
+        super().__init__(f"bản xuất bản có {len(diffs)} thay đổi ngoài các đoạn marker vừa chèn")
         self.diffs = diffs
