@@ -76,11 +76,14 @@ export function getConfigPermission(role?: UserRole): ConfigPermission {
     };
   }
   const mapped = r === "it" ? "it" : r === "legal" ? "legal" : "purchasing";
-  // Fallback tra theo TÊN, không theo chỉ số. Bản cũ dùng
-  // `DEFAULT_CONFIG_PERMISSIONS[2]` — đúng "purchasing" tại thời điểm viết,
-  // nhưng chỉ cần chèn/xoá một phần tử phía trên là chỉ số đó trượt sang "admin",
-  // tức vai trò không rõ được cấp TOÀN QUYỀN cấu hình. Xoá `legal_lead` ở vòng
-  // này làm đúng chuyện đó xảy ra.
+  // `mapped` luôn là một trong ba giá trị có sẵn trong bảng, nên `find` không
+  // bao giờ trả `undefined` — nhánh sau chỉ để TypeScript yên tâm.
+  //
+  // Trước đây nhánh đó là `DEFAULT_CONFIG_PERMISSIONS[2]`, tức bám vào THỨ TỰ
+  // mảng. Xoá `legal_lead` ở vòng C làm chỉ số 2 trượt từ `purchasing` sang
+  // `admin`. **Chưa gây hậu quả** vì nhánh này không chạm tới được — nhưng đó
+  // đúng là loại mã chỉ chờ ai đó nới `mapped` rộng ra là thành lỗ cấp quyền
+  // thật, và lúc đó không có gì báo động.
   return (
     DEFAULT_CONFIG_PERMISSIONS.find((p) => p.role === mapped) ||
     DEFAULT_CONFIG_PERMISSIONS.find((p) => p.role === "purchasing")!

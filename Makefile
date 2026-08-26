@@ -138,9 +138,9 @@ test-fx: ## Test giữ format trên .docx thật
 test-editor-parity: ## Text SuperDoc phải khớp text backend (chạy lại khi nâng cấp SuperDoc)
 	./scripts/check-editor-text-parity.sh
 
-.PHONY: test-session
-test-session: ## Dòng thời gian phiên đăng nhập (gia hạn / cảnh báo / hết hạn)
-	node scripts/check-session-timeline.mjs
+.PHONY: test-fe
+test-fe: ## Test frontend (vitest + jsdom) — chạy trong container
+	docker compose exec -T frontend npx vitest run
 
 .PHONY: cov
 cov: ## Test kèm báo cáo độ phủ

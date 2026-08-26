@@ -166,8 +166,8 @@ Ranh giới tin cậy: chính sách idle ở client là **cố ý** — nó là 
 nghiệm, và người dùng giả vờ hoạt động thì họ chính là người đang ngồi đó. Thứ
 không giả được là trần tuyệt đối, do server giữ.
 
-Kiểm dòng thời gian: `make test-session` (FE chưa có hạ tầng test, nên phần quyết
-định được tách thành hàm thuần `nextAction` để chạy tay được).
+Kiểm dòng thời gian: `make test-fe`. Phần quyết định là hàm thuần `nextAction`
+nên diễn lại được cả 30 phút trong vài mili-giây, không phải ngồi chờ.
 
 ### Đánh thức Celery worker
 
@@ -269,6 +269,9 @@ make lint && make test
 Với thay đổi chạm `services/document/`: **bắt buộc** thêm `make test-fx` và xác nhận `diff_outside()` trả rỗng.
 
 Với thay đổi chạm `services/ai/`: chạy lại `make check-models` để chắc endpoint còn sống, vì test AI phụ thuộc service ngoài.
+
+Frontend giờ **có** hạ tầng test: `make test-fe` (vitest + jsdom, chạy trong
+container `frontend`). Đụng `lib/` hoặc component nào có test thì chạy nó.
 
 Với thay đổi chạm cách đọc text từ OOXML (`run_text`, `OoxmlReader`) **hoặc** nâng
 cấp `@harbour-enterprises/superdoc`: **bắt buộc** `make test-editor-parity`. Hai

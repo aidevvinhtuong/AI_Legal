@@ -182,10 +182,10 @@ export type NextAction =
 /**
  * Quyết định thuần — không đụng DOM, không đụng `localStorage`, không hẹn giờ.
  *
- * Tách ra vì đây là toàn bộ phần dễ sai của cơ chế giữ phiên, và **frontend chưa
- * có hạ tầng test nào**. Là hàm thuần thì còn kiểm được bằng cách chạy tay trên
- * một dòng thời gian giả (`scripts/check-session-timeline.mjs`); nằm lẫn trong
- * `setTimeout` và sự kiện DOM thì chỉ còn cách tin vào lập luận.
+ * Tách ra vì đây là toàn bộ phần dễ sai của cơ chế giữ phiên. Là hàm thuần thì
+ * diễn lại được cả dòng thời gian 30 phút trong vài mili-giây
+ * (`session-keepalive.test.ts`); nằm lẫn trong `setTimeout` và sự kiện DOM thì
+ * chỉ còn cách tin vào lập luận.
  */
 export function nextAction(input: {
   expMs: number;
