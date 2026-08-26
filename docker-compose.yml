@@ -128,6 +128,11 @@ services:
       # `localhost` bên trong container là chính nó, không phải máy host.
       API_REWRITE_URL: http://api:8000
       NEXT_PUBLIC_USE_MOCK: ${NEXT_PUBLIC_USE_MOCK:-false}
+      # Trình hiển thị .docx: `docx-preview` (mặc định) | `superdoc`.
+      # SuperDoc trung thực hơn và là nền cho comment (TH1) + track changes
+      # (TH2), nhưng lớp diff của AI chưa port sang nên bật là mất accept/undo
+      # trên file. IT governance đã duyệt AGPLv3 ngày 24/08/2026.
+      NEXT_PUBLIC_EDITOR: ${NEXT_PUBLIC_EDITOR:-docx-preview}
       # Đặt true trong .env nếu sửa file mà trình duyệt không tự nạp lại
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-false}
       CHOKIDAR_USEPOLLING: ${WATCHPACK_POLLING:-false}

@@ -134,6 +134,14 @@ test-unit: ## Chỉ unit test (không cần hạ tầng)
 test-fx: ## Test giữ format trên .docx thật
 	cd $(BACKEND) && ../$(PYTEST) -q -m fidelity -v
 
+.PHONY: test-editor-parity
+test-editor-parity: ## Text SuperDoc phải khớp text backend (chạy lại khi nâng cấp SuperDoc)
+	./scripts/check-editor-text-parity.sh
+
+.PHONY: test-session
+test-session: ## Dòng thời gian phiên đăng nhập (gia hạn / cảnh báo / hết hạn)
+	node scripts/check-session-timeline.mjs
+
 .PHONY: cov
 cov: ## Test kèm báo cáo độ phủ
 	cd $(BACKEND) && ../$(PYTEST) -q --cov=app --cov-report=term-missing
@@ -157,6 +165,11 @@ check-models: ## Kiểm chứng 3 endpoint LLM / embedding / rerank
 .PHONY: check-ports
 check-ports: ## Xem cổng nào đang bị chiếm trên máy
 	python3 scripts/check-ports.py
+
+.PHONY: demo-reset
+demo-reset: ## Xoá dữ liệu hợp đồng để test tay cho sạch (GIỮ cấu hình). Thêm y=1 để xoá thật
+	$(COMPOSE) cp scripts/demo-reset.py api:/tmp/demo-reset.py
+	$(COMPOSE) exec -T api python /tmp/demo-reset.py $(if $(y),--yes,)
 
 .PHONY: audit-templates
 audit-templates: ## Kiểm định template hợp đồng có đạt chuẩn không

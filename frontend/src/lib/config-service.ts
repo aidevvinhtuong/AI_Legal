@@ -68,24 +68,22 @@ export function getConfigPermission(role?: UserRole): ConfigPermission {
   if (perms?.length) {
     const canConfig = perms.includes("contract_config");
     return {
-      role: r === "it" ? "it" : r === "legal_lead" ? "legal_lead" : r === "legal" ? "legal" : "purchasing",
+      role: r === "it" ? "it" : r === "legal" ? "legal" : "purchasing",
       canView: canConfig,
       canEditDraft: canConfig,
       canImportExport: canConfig,
       canViewAudit: canConfig || r === "it",
     };
   }
-  const mapped =
-    r === "it"
-      ? "it"
-      : r === "legal_lead"
-        ? "legal_lead"
-        : r === "legal"
-          ? "legal"
-          : "purchasing";
+  const mapped = r === "it" ? "it" : r === "legal" ? "legal" : "purchasing";
+  // Fallback tra theo TÊN, không theo chỉ số. Bản cũ dùng
+  // `DEFAULT_CONFIG_PERMISSIONS[2]` — đúng "purchasing" tại thời điểm viết,
+  // nhưng chỉ cần chèn/xoá một phần tử phía trên là chỉ số đó trượt sang "admin",
+  // tức vai trò không rõ được cấp TOÀN QUYỀN cấu hình. Xoá `legal_lead` ở vòng
+  // này làm đúng chuyện đó xảy ra.
   return (
     DEFAULT_CONFIG_PERMISSIONS.find((p) => p.role === mapped) ||
-    DEFAULT_CONFIG_PERMISSIONS[2]
+    DEFAULT_CONFIG_PERMISSIONS.find((p) => p.role === "purchasing")!
   );
 }
 

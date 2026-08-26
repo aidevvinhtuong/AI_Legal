@@ -4,6 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { WordEmbedShell } from "@/components/review/word-embed";
 import { DocxEmbed } from "@/components/review/docx-embed";
+import {
+  SuperDocEmbed,
+  type DocSelection,
+  type SuperDocHandle,
+  type SuperDocMode,
+} from "@/components/review/superdoc-embed";
+import { DOCX_RENDERER } from "@/lib/api";
 import { parseContractSections } from "@/components/review/original-word-view";
 import { ContractInsightPopup } from "@/components/review/contract-insight-popup";
 import type {
@@ -12,7 +19,7 @@ import type {
   ReviewAttachment,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { Check, RotateCcw } from "lucide-react";
+import { Check, PenLine, RotateCcw } from "lucide-react";
 
 /**
  * Màn AI-reviewed chính: nhúng Word preview + Accept/Undo đề xuất trên file.
@@ -34,6 +41,10 @@ export function ReviewedWordView({
   isInsightRecalculating,
   onDocumentEdit,
   onSectionEdit,
+  superDocRef,
+  superDocMode = "viewing",
+  onSuperDocModeChange,
+  onSelectionChange,
 }: {
   fileName: string;
   title?: string;
@@ -51,6 +62,12 @@ export function ReviewedWordView({
   isInsightRecalculating?: boolean;
   onDocumentEdit?: (plainText: string) => void;
   onSectionEdit?: (sectionId: string, nextBody: string) => void;
+  /** Handle của SuperDoc — cha dùng để đọc vùng chọn và track changes. */
+  superDocRef?: React.Ref<SuperDocHandle>;
+  superDocMode?: SuperDocMode;
+  /** Có hàm này thì hiện nút bật/tắt chế độ đề xuất (TH2). */
+  onSuperDocModeChange?: (mode: SuperDocMode) => void;
+  onSelectionChange?: (selection: DocSelection | null) => void;
 }) {
   const fileTabs = useMemo<ReviewAttachment[]>(() => {
     if (attachments?.length) return attachments;
@@ -135,6 +152,40 @@ export function ReviewedWordView({
           </span>
         )}
       </span>
+      {/* Trình hiển thị đang chạy. Có nhãn thì không phải mở DevTools để đoán
+          xem `NEXT_PUBLIC_EDITOR` đã ăn chưa — và SuperDoc thì mất lớp diff
+          của AI trên file, nên người dùng cần biết vì sao nút Accept trên
+          trang không còn. */}
+      <span
+        title={
+          DOCX_RENDERER === "superdoc"
+            ? "SuperDoc — chỉ hiển thị. Accept/Undo đề xuất làm ở panel bên phải."
+            : "docx-preview — có lớp diff Accept/Undo ngay trên tài liệu."
+        }
+        className="text-[10px] font-medium px-1.5 py-0.5 rounded border bg-muted text-muted-foreground"
+      >
+        {DOCX_RENDERER === "superdoc" ? "SuperDoc" : "docx-preview"}
+      </span>
+      {onSuperDocModeChange && DOCX_RENDERER === "superdoc" && (
+        <Button
+          size="sm"
+          variant={superDocMode === "suggesting" ? "default" : "outline"}
+          className="h-7 text-[11px]"
+          onClick={() =>
+            onSuperDocModeChange(
+              superDocMode === "suggesting" ? "viewing" : "suggesting"
+            )
+          }
+          title={
+            superDocMode === "suggesting"
+              ? "Đang ở chế độ đề xuất — mọi thay đổi ghi thành track changes, chưa vào tài liệu"
+              : "Bật chế độ đề xuất để sửa trực tiếp dưới dạng track changes"
+          }
+        >
+          <PenLine className="mr-1 h-3 w-3" />
+          {superDocMode === "suggesting" ? "Đang đề xuất" : "Đề xuất sửa"}
+        </Button>
+      )}
       {contractInsight ? (
         <button
           ref={badgeRef}
@@ -200,7 +251,19 @@ export function ReviewedWordView({
           toolbar={toolbar}
           className="flex-1 min-h-0"
         >
-          {activeDocxUrl ? (
+          {activeDocxUrl && DOCX_RENDERER === "superdoc" ? (
+            // Lớp diff của AI chưa port sang SuperDoc, nên accept/undo đề xuất
+            // AI vẫn thao tác ở panel bên cạnh. Đổi lại: độ trung thực cao hơn,
+            // bôi chọn được để neo bình luận (TH1), và sửa được ở chế độ đề
+            // xuất để sinh track changes (TH2).
+            <SuperDocEmbed
+              key={`${activeFileId}:${superDocMode}`}
+              ref={superDocRef}
+              src={activeDocxUrl}
+              mode={superDocMode}
+              onSelectionChange={onSelectionChange}
+            />
+          ) : activeDocxUrl ? (
             <DocxEmbed
               key={activeFileId}
               src={activeDocxUrl}

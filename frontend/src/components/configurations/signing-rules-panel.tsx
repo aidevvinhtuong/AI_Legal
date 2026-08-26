@@ -26,8 +26,8 @@ import type {
 } from "@/lib/config-types";
 import { fetchFormLists } from "@/lib/form-lists-service";
 import type { CodeLabelOption } from "@/lib/form-lists-store";
-import type { AppUser } from "@/lib/types";
-import { fetchUsers } from "@/lib/users-service";
+import type { UserDirectoryEntry } from "@/lib/types";
+import { fetchUserDirectory } from "@/lib/users-service";
 import { Check, ChevronDown, Loader2, Plus, Save, Trash2 } from "lucide-react";
 
 function newRule(
@@ -69,7 +69,7 @@ function UserSearchSelect({
   disabled,
   onChange,
 }: {
-  users: AppUser[];
+  users: UserDirectoryEntry[];
   value: string;
   disabled?: boolean;
   onChange: (userId: string) => void;
@@ -266,25 +266,51 @@ export function SigningRulesPanel() {
   const [rules, setRules] = useState<SigningAuthorityRule[]>([]);
   const [parents, setParents] = useState<ContractParentCategory[]>([]);
   const [companies, setCompanies] = useState<CodeLabelOption[]>([]);
-  const [users, setUsers] = useState<AppUser[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
 
   useEffect(() => {
-    Promise.all([listSigningRules(), listParentCategories(), fetchFormLists(), fetchUsers()])
-      .then(([r, p, lists, allUsers]) => {
-        setRules(r);
-        setParents(p);
-        setCompanies(
-          lists.businessEntities.filter((c) => c.status !== "archived")
-        );
-        setUsers(allUsers.filter((u) => u.active));
+    // `allSettled`, KHÔNG `all`: bốn nguồn này độc lập nhau, nên một cái hỏng
+    // không có lý do gì làm trắng cả bảng. Trước đây `fetchUsers()` trả 403 cho
+    // Legal và kéo theo cả rules/parents/companies cùng rỗng — người dùng thấy
+    // "Chưa có dòng" trong khi dữ liệu vẫn còn nguyên trong DB.
+    void Promise.allSettled([
+      listSigningRules(),
+      listParentCategories(),
+      fetchFormLists(),
+      fetchUserDirectory(),
+    ])
+      .then(([r, p, lists, dir]) => {
+        if (r.status === "fulfilled") setRules(r.value);
+        if (p.status === "fulfilled") setParents(p.value);
+        if (lists.status === "fulfilled") {
+          setCompanies(
+            lists.value.businessEntities.filter((c) => c.status !== "archived")
+          );
+        }
+        if (dir.status === "fulfilled") {
+          setUsers(dir.value.filter((u) => u.active));
+        }
+
+        const failed = [
+          [r, "bảng phân quyền ký"],
+          [p, "danh mục Loại hợp đồng"],
+          [lists, "Form lists"],
+          [dir, "danh bạ người dùng"],
+        ] as const;
+        const errors = failed
+          .filter(([res]) => res.status === "rejected")
+          .map(([res, label]) => {
+            const reason = (res as PromiseRejectedResult).reason;
+            return `${label}: ${reason instanceof Error ? reason.message : "Lỗi"}`;
+          });
+        if (errors.length) {
+          toast({
+            title: "Một số dữ liệu không tải được",
+            description: errors.join(" · "),
+            variant: "destructive",
+          });
+        }
       })
-      .catch((e) =>
-        toast({
-          title: "Lỗi tải bảng phân quyền ký",
-          description: e instanceof Error ? e.message : "Lỗi",
-          variant: "destructive",
-        })
-      )
       .finally(() => setLoading(false));
   }, [toast]);
 

@@ -11,6 +11,7 @@ hậu kiểm Lớp 2. Không có hàm nào khác trong hệ thống được ghi
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -51,11 +52,14 @@ from app.infra.models import (
     User,
 )
 from app.services.ai.consistency import run_all as run_consistency
-from app.services.config import signing
+from app.services.config import signing, templates
 from app.services.document.allowlist import FieldChange
 from app.services.document.engine import LxmlDocumentEngine
 from app.services.document.model import FieldInventory, RegionKind
+from app.services.review import versions
 from app.services.storage.objects import get_storage
+
+log = logging.getLogger("ailegal.review")
 
 MAX_UPLOAD_HINT = "Chỉ nhận tệp .docx"
 
@@ -73,6 +77,9 @@ class ReviewBundle:
     feedback: list[FeedbackItem]
     versions: list[tuple[ReviewVersion, ReviewFile | None]]
     files: dict[str, ReviewFile]
+    # Tệp đính kèm của các lượt duyệt (TH3). Tách khỏi `files` vì `files` chỉ giữ
+    # BẢN MỚI NHẤT của mỗi `kind`, mà đính kèm thì phải giữ tất cả.
+    attached_files: list[ReviewFile]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,11 +191,16 @@ def load_bundle(db: Session, review: ContractReview) -> ReviewBundle:
     versions = [(v, file_by_id.get(v.file_id) if v.file_id else None) for v in versions_rows]
 
     files: dict[str, ReviewFile] = {}
+    attached: list[ReviewFile] = []
     for file in file_by_id.values():
+        if file.kind == "attachment":
+            attached.append(file)
+            continue
         # Bản mới nhất của mỗi loại thắng
         current = files.get(file.kind)
         if current is None or file.created_at >= current.created_at:
             files[file.kind] = file
+    attached.sort(key=lambda f: f.created_at)
 
     return ReviewBundle(
         review=review,
@@ -224,6 +236,7 @@ def load_bundle(db: Session, review: ContractReview) -> ReviewBundle:
         ),
         versions=versions,
         files=files,
+        attached_files=attached,
     )
 
 
@@ -238,18 +251,38 @@ def create_review(
     contract_type_id: str,
     contract_type_label: str,
     intake: dict[str, Any],
-    file_name: str,
-    blob: bytes,
+    file_name: str = "",
+    blob: bytes | None = None,
     kind: ReviewKind = ReviewKind.FULL,
     prompt: str = "",
+    from_template: bool = False,
 ) -> ContractReview:
     """
     Tạo ticket + version 1 + kiểm kê vùng mở.
+
+    Hai đường vào tài liệu (TS-04 mục VI · CLAUDE.md 5.1):
+
+      `from_template=True`  — **đường chính.** Hệ thống lấy bytes từ template
+                              Legal đã đăng ký. Không nhận file từ người dùng,
+                              nên inventory vùng mở/khoá tin cậy tuyệt đối.
+      `from_template=False` — đường phụ. Nhận `.docx` upload, **bắt buộc** đi
+                              qua `templates.bind_upload()`. Lệch cấu trúc là
+                              chặn, không có override (ràng buộc C-4).
 
     Thứ tự cố ý: **ghi object TRƯỚC, commit DB SAU**. Hỏng giữa chừng chỉ để lại
     object mồ côi (vô hại), thay vì bản ghi trỏ vào file không tồn tại.
     """
     principal.require(Permission.CONTRACTS_CREATE)
+
+    template_row = None
+    if from_template:
+        template_row, blob = templates.instantiate(db, contract_type_id)
+        file_name = template_row.file_name
+    elif blob is None:
+        raise ValidationError(
+            "Phải chọn tệp hợp đồng, hoặc dùng đường sinh từ template",
+            code="file_required",
+        )
 
     if not file_name.lower().endswith(".docx"):
         raise ValidationError(MAX_UPLOAD_HINT, code="invalid_file_type")
@@ -259,6 +292,21 @@ def create_review(
         inventory = engine.get_field_inventory(engine.parse(blob))
     except Exception as e:  # DocxError và mọi lỗi định dạng khác
         raise ValidationError(f"Không đọc được tệp .docx: {e}", code="invalid_docx") from e
+
+    # ── Ràng buộc cấu trúc — CHẶN Ở ĐÂY, trước khi ticket tồn tại ──────────
+    # Nếu để sau khi tạo ticket thì file sai cấu trúc đã nằm trong hệ thống và
+    # AI có thể được gọi trên nó.
+    if template_row is not None:
+        binding_state = {
+            "status": "instantiated",
+            "templateId": str(template_row.id),
+            "templateVersion": template_row.version,
+            "structureFingerprint": template_row.structure_fingerprint,
+        }
+    else:
+        binding_state = templates.bind_upload(
+            db, contract_name_slug=contract_type_id, inventory=inventory
+        )
 
     # FE gửi `businessEntityId` là slug (`be_sgvn`), không phải mã hiển thị.
     # Tra mã thật từ danh mục, nếu không sẽ ra số tài liệu kiểu `BE_SGVN.HQP...`
@@ -275,6 +323,7 @@ def create_review(
 
     intake = dict(intake)
     intake.setdefault("documentNumber", code)
+    intake["structuralBinding"] = binding_state
 
     review = ContractReview(
         code=code,
@@ -288,6 +337,7 @@ def create_review(
         intake=intake,
         prompt=prompt,
         version=1,
+        template_id=template_row.id if template_row is not None else None,
     )
     db.add(review)
     db.flush()
@@ -311,8 +361,12 @@ def create_review(
         action=VersionAction.CREATE,
         principal=principal,
         file=file_row,
-        label="Tạo tài liệu",
+        label="Sinh từ template" if template_row is not None else "Tạo tài liệu",
         inventory=inventory,
+        # Nhãn nghiệp vụ của từng vùng mở lấy từ template — `permId` của Range
+        # Permission là số ngẫu nhiên vô nghĩa, không có bảng này thì UI chỉ
+        # hiện được "Vùng mở #7".
+        labels=dict(template_row.field_labels or {}) if template_row is not None else None,
     )
 
     _audit(
@@ -321,7 +375,12 @@ def create_review(
         action="review_created",
         entity_type="contract_review",
         entity_id=str(review.id),
-        new_value={"code": code, "fileName": file_name, "openRegions": len(inventory.fields)},
+        new_value={
+            "code": code,
+            "fileName": file_name,
+            "openRegions": len(inventory.fields),
+            "binding": binding_state,
+        },
     )
     return review
 
@@ -353,6 +412,29 @@ def _catalog_code(
     return fallback
 
 
+
+def _carry_document(
+    db: Session, review: ContractReview
+) -> tuple[ReviewFile | None, FieldInventory | None]:
+    """
+    Tệp + kiểm kê vùng của version tài liệu hiện tại, để mang sang version mới.
+
+    Dùng cho những version KHÔNG đổi nội dung (Từ chối, ghi chú). Đọc lại kiểm
+    kê từ chính tệp thay vì chép bảng `document_fields`: allow-list phải luôn
+    được dựng từ file thật, không suy diễn từ lần trước — đó là quy tắc của
+    C-3, và một ngoại lệ "chép cho nhanh" là chỗ để nó rò rỉ.
+    """
+    try:
+        version = versions.current_document(db, review)
+    except ConflictError:
+        return None, None
+    file_row = db.get(ReviewFile, version.file_id) if version.file_id else None
+    if file_row is None:
+        return None, None
+    engine = LxmlDocumentEngine()
+    blob = get_storage().get(file_row.storage_key)
+    return file_row, engine.get_field_inventory(engine.parse(blob))
+
 def _push_version(
     db: Session,
     *,
@@ -363,6 +445,7 @@ def _push_version(
     label: str,
     inventory: FieldInventory | None,
     field_diff: list[dict[str, Any]] | None = None,
+    labels: dict[str, str] | None = None,
 ) -> ReviewVersion:
     """Tạo snapshot bất biến + dựng lại allow-list từ chính file của version đó."""
     version = ReviewVersion(
@@ -381,7 +464,7 @@ def _push_version(
     db.flush()
 
     if inventory is not None:
-        _index_fields(db, review=review, version=version, inventory=inventory)
+        _index_fields(db, review=review, version=version, inventory=inventory, labels=labels)
     return version
 
 
@@ -422,7 +505,24 @@ def _index_fields(
     inventory: FieldInventory,
     labels: dict[str, str] | None = None,
 ) -> None:
-    labels = labels or {}
+    """
+    Dựng lại allow-list cho một version.
+
+    Nhãn nghiệp vụ **kế thừa từ version trước** khi người gọi không truyền vào.
+    Không có phần kế thừa này thì tên vùng chỉ sống ở v1: ghi trường một lần là
+    mọi vùng quay về "Vùng mở #7", UI mất tên, và chat mất luôn khả năng nhận ra
+    người dùng đang nói tới vùng nào. Đo được trên máy dev — v1 có nhãn, v2 rỗng.
+    """
+    labels = dict(labels or {})
+    if not labels:
+        labels = {
+            f.perm_id: f.label
+            for f in db.execute(
+                select(DocumentField)
+                .where(DocumentField.review_id == review.id, DocumentField.label != "")
+                .order_by(DocumentField.created_at.desc())
+            ).scalars()
+        }
     for field in inventory.fields:
         db.add(
             DocumentField(
@@ -483,8 +583,10 @@ def save_fields(
 
     if result.rejected and not result.applied:
         for rejection in result.rejected:
-            _audit(
-                db,
+            # Transaction RIÊNG: ngay dưới là `raise`, mà `get_session()` rollback
+            # khi request lỗi — audit ghi vào session này sẽ bị xoá cùng. Đây là
+            # bằng chứng có người cố ghi vào vùng khoá, không được phép mất.
+            write_audit_now(
                 principal,
                 action="writeback_rejected",
                 entity_type="document_field",
@@ -553,15 +655,8 @@ def save_fields(
 
 
 def _current_version(db: Session, review: ContractReview) -> ReviewVersion:
-    version = db.execute(
-        select(ReviewVersion)
-        .where(ReviewVersion.review_id == review.id)
-        .order_by(ReviewVersion.version.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if version is None:
-        raise ConflictError("Ticket chưa có version nào", code="no_version")
-    return version
+    """Version MANG TỆP đang có hiệu lực — xem `versions.current_document`."""
+    return versions.current_document(db, review)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -675,6 +770,12 @@ def decide(
 
     if not approve:
         _record_feedback(db, principal, review, comment=comment, items=items)
+        # Từ chối KHÔNG đổi tài liệu, nên version mới phải trỏ vào ĐÚNG tệp cũ.
+        # Để `file=None` thì snapshot rỗng, và mọi thứ đọc từ tài liệu sụp theo:
+        # `save_fields()` ném `missing_file` (Purchasing hết sửa được, đúng lúc
+        # họ cần sửa nhất), kiểm kê trường về rỗng, bình luận mồ côi hàng loạt.
+        # Đo được trên VTS.HQP.261105 — Legal Từ chối xong, `fields: []`.
+        carried_file, carried_inventory = _carry_document(db, review)
         review.version += 1
         _push_version(
             db,
@@ -683,9 +784,9 @@ def decide(
                 VersionAction.MANAGER_REJECT if stage == "manager" else VersionAction.LEGAL_REJECT
             ),
             principal=principal,
-            file=None,
+            file=carried_file,
             label=f"Từ chối: {comment[:120]}" if comment else "Từ chối",
-            inventory=None,
+            inventory=carried_inventory,
             field_diff=None,
         )
     elif flow is not None:
@@ -903,6 +1004,82 @@ def _audit(
             new_value=new_value,
         )
     )
+
+
+def write_audit(
+    db: Session,
+    principal: Principal | None,
+    *,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> None:
+    """
+    Cửa công khai của `_audit` cho các service khác (PT3 ghi lại lần bị chặn).
+
+    Cùng lý do như `record_version`: service khác cần ghi audit là chuyện bình
+    thường, nhưng để chúng gọi `_audit` là mở đường cho mọi nơi tự dựng
+    `AuditLog` theo cách riêng, rồi cột `action` biến thành bãi chuỗi tự do.
+    """
+    _audit(
+        db,
+        principal,
+        action=action,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        old_value=old_value,
+        new_value=new_value,
+    )
+
+
+def write_audit_now(
+    principal: Principal | None,
+    *,
+    action: str,
+    entity_type: str,
+    entity_id: str,
+    old_value: dict[str, Any] | None = None,
+    new_value: dict[str, Any] | None = None,
+) -> None:
+    """
+    Ghi audit trong MỘT TRANSACTION RIÊNG, commit ngay.
+
+    Dùng cho audit phải sống sót qua một `raise` — cụ thể là mọi lần **chặn** ghi
+    vùng khoá: `save_fields()` bị allow-list từ chối, và PT3 upload lại lệch cấu
+    trúc.
+
+    Vì sao không dùng `write_audit()` được: nó ghi vào session của request, mà
+    request kết thúc bằng exception nên `get_session()` rollback — **xoá luôn cả
+    bản ghi audit**. Đo được: sau hai lần upload lại bị chặn, bảng `audit_log`
+    có 0 dòng `reupload_rejected`.
+
+    Đây không phải chi tiết nhỏ. Một lần bị chặn có thể là vô tình (Word tự sửa
+    gì đó). Nhiều lần trên cùng một ticket thì không còn vô tình — và đó đúng là
+    thứ hệ thống pháp chế phải ghi lại được.
+
+    Lỗi khi ghi audit KHÔNG được che lỗi gốc: người dùng cần thấy vì sao tệp bị
+    chặn, còn việc audit hỏng thuộc về log vận hành.
+    """
+    from app.infra.db import session_scope
+
+    try:
+        with session_scope() as session:
+            session.add(
+                AuditLog(
+                    actor_id=principal.user_id if principal else None,
+                    actor_name=principal.username if principal else "system",
+                    actor_role=principal.role.value if principal else "system",
+                    action=action,
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    old_value=old_value,
+                    new_value=new_value,
+                )
+            )
+    except Exception as e:
+        log.error("không ghi được audit “%s” cho %s: %s", action, entity_id, e)
 
 
 def count_by_status(db: Session, principal: Principal) -> dict[str, int]:

@@ -10,9 +10,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ChatPanel } from "@/components/review/chat-panel";
+import { AttachmentsPanel } from "@/components/review/attachments-panel";
+import { CommentPanel } from "@/components/review/comment-panel";
+import { LegalEditsPanel } from "@/components/review/legal-edits-panel";
 import { ReviewedWordView } from "@/components/review/reviewed-word-view";
+import type {
+  DocSelection,
+  SuperDocHandle,
+  SuperDocMode,
+} from "@/components/review/superdoc-embed";
 import { StatusBadge } from "@/components/review/status-badge";
 import { useToast } from "@/components/ui/use-toast";
+import { downloadFile } from "@/lib/api";
 import {
   IntakeFormFields,
   intakeFromReview,
@@ -34,6 +43,7 @@ import {
   listReviews,
   managerDecide,
 } from "@/lib/review-service";
+import { canSuggestEdits } from "@/lib/roles";
 import { displayFullName, subordinateIds } from "@/lib/user-store";
 import type {
   ContractReview,
@@ -95,12 +105,21 @@ export default function TaskInboxPage() {
   /** Task cá nhân theo role. IT (demo) xem tất cả hàng chờ để giả lập Start. */
   const isIt = session?.role === "it";
   const isLegalApprover =
-    session?.role === "legal" || session?.role === "legal_lead" || isIt;
+    session?.role === "legal" || isIt;
   const isPurchasing = session?.role === "purchasing" || isIt;
   const isManager = session?.role === "purchasing_manager" || isIt;
 
   /** % chiều rộng cột Chat trong tab AI Workspace (kéo thanh chia để đổi). */
   const [chatPct, setChatPct] = useState(42);
+  // TH1 + TH2 phải làm được TỪ ĐÂY. Task inbox mới là nơi Manager/Legal thật sự
+  // ngồi duyệt; bắt họ mở sang workspace của Purchasing để bình luận là bắt đi
+  // vòng, và workspace đó vốn dựng cho người tạo ticket.
+  const [leftTab, setLeftTab] = useState<
+    "chat" | "comments" | "edits" | "files"
+  >("chat");
+  const superDocRef = useRef<SuperDocHandle>(null);
+  const [superDocMode, setSuperDocMode] = useState<SuperDocMode>("viewing");
+  const [docSelection, setDocSelection] = useState<DocSelection | null>(null);
   const splitRef = useRef<HTMLDivElement>(null);
 
   const startSplitDrag = useCallback((e: React.PointerEvent) => {
@@ -154,9 +173,7 @@ export default function TaskInboxPage() {
     const role = getSession()?.role;
     if (
       focusId &&
-      (role === "legal" ||
-        role === "legal_lead" ||
-        role === "purchasing_manager")
+      (role === "legal" || role === "purchasing_manager")
     ) {
       setActiveId(focusId);
     }
@@ -582,18 +599,47 @@ export default function TaskInboxPage() {
                         active.reviewedDocxUrl ||
                         active.originalDocxUrl;
                       if (!href) return null;
+                      // Endpoint file của backend kiểm quyền bằng Bearer token;
+                      // `<a href>` trần không gửi được header nên luôn 401.
+                      // Chỉ `/samples/*` (mock) là file tĩnh tải thẳng được.
+                      const needsAuth = href.startsWith("/api/");
                       return (
                         <li key={att.id}>
-                          <a
-                            href={href}
-                            download={att.fileName}
-                            className="flex items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-sm hover:bg-muted/60"
-                          >
-                            <FileText className="h-4 w-4 text-sky-600 shrink-0" />
-                            <span className="font-medium text-primary hover:underline truncate">
-                              {att.fileName}
-                            </span>
-                          </a>
+                          {needsAuth ? (
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-left text-sm hover:bg-muted/60"
+                              onClick={() => {
+                                void downloadFile(href, att.fileName).catch(
+                                  (err) =>
+                                    toast({
+                                      title: "Không tải được file",
+                                      description:
+                                        err instanceof Error
+                                          ? err.message
+                                          : "Lỗi",
+                                      variant: "destructive",
+                                    })
+                                );
+                              }}
+                            >
+                              <FileText className="h-4 w-4 text-sky-600 shrink-0" />
+                              <span className="font-medium text-primary hover:underline truncate">
+                                {att.fileName}
+                              </span>
+                            </button>
+                          ) : (
+                            <a
+                              href={href}
+                              download={att.fileName}
+                              className="flex items-center gap-3 rounded-xl border bg-card px-3 py-2.5 text-sm hover:bg-muted/60"
+                            >
+                              <FileText className="h-4 w-4 text-sky-600 shrink-0" />
+                              <span className="font-medium text-primary hover:underline truncate">
+                                {att.fileName}
+                              </span>
+                            </a>
+                          )}
                         </li>
                       );
                     })}
@@ -719,18 +765,70 @@ export default function TaskInboxPage() {
                 style={{ ["--chat-w" as string]: `${chatPct}%` }}
                 className="flex flex-col flex-1 xl:flex-none xl:w-[var(--chat-w)] h-full min-h-0 overflow-hidden rounded-xl"
               >
-                <CardHeader className="py-3 border-b shrink-0">
-                  <CardTitle className="text-sm">Chat với AI</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Chỉ xem — lịch sử trao đổi giữa Purchasing và AI.
-                  </p>
+                <CardHeader className="py-2 border-b shrink-0">
+                  <div className="flex items-center gap-1">
+                    {(["chat", "comments", "edits", "files"] as const).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => setLeftTab(tab)}
+                        className={
+                          leftTab === tab
+                            ? "rounded-md bg-muted px-3 py-1.5 text-sm font-medium"
+                            : "rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50"
+                        }
+                      >
+                        {tab === "chat"
+                          ? "Chat với AI"
+                          : tab === "comments"
+                            ? "Bình luận"
+                            : tab === "edits"
+                              ? "Đề xuất"
+                              : "Tệp"}
+                      </button>
+                    ))}
+                  </div>
+                  {leftTab === "chat" && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Chỉ xem — lịch sử trao đổi giữa Purchasing và AI.
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent className="p-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-                  <ChatPanel
-                    messages={active.messages}
-                    disabled
-                    onSend={async () => {}}
-                  />
+                  {leftTab === "chat" && (
+                    <ChatPanel
+                      messages={active.messages}
+                      disabled
+                      onSend={async () => {}}
+                    />
+                  )}
+                  {leftTab === "comments" && (
+                    <CommentPanel
+                      reviewId={active.id}
+                      fields={active.fields}
+                      canComment
+                      documentSelection={docSelection}
+                    />
+                  )}
+                  {leftTab === "edits" && (
+                    <LegalEditsPanel
+                      reviewId={active.id}
+                      collectSuggestions={
+                        superDocMode === "suggesting"
+                          ? () => superDocRef.current?.collectSuggestions() ?? []
+                          : null
+                      }
+                      // Người duyệt KHÔNG áp được: áp là ghi tài liệu, và tài
+                      // liệu lúc này đang ở hàng chờ duyệt. Họ Từ chối để trả
+                      // hồ sơ về Purchasing — quy tắc A4b.
+                      canApply={false}
+                    />
+                  )}
+                  {leftTab === "files" && (
+                    // TH3: gửi kèm bản đã sửa bằng Word. KHÔNG thay tài liệu —
+                    // Purchasing đọc rồi tự quyết sửa gì qua PT1/PT2/PT3.
+                    <AttachmentsPanel reviewId={active.id} canAttach />
+                  )}
                 </CardContent>
               </Card>
 
@@ -759,6 +857,31 @@ export default function TaskInboxPage() {
                   onUndo={() => {}}
                   onAcceptAll={() => {}}
                   onUndoAll={() => {}}
+                  superDocRef={superDocRef}
+                  superDocMode={superDocMode}
+                  onSuperDocModeChange={
+                    canSuggestEdits(session)
+                      ? (mode) => {
+                          // Đổi chế độ là remount tài liệu ⇒ track changes chưa
+                          // gửi mất sạch. Hỏi trước.
+                          if (mode === "viewing") {
+                            const unsent =
+                              superDocRef.current?.collectSuggestions().length ?? 0;
+                            if (
+                              unsent > 0 &&
+                              !window.confirm(
+                                `Còn ${unsent} thay đổi chưa gửi. Thoát chế độ đề xuất sẽ mất hết. Tiếp tục?`
+                              )
+                            ) {
+                              return;
+                            }
+                          }
+                          setSuperDocMode(mode);
+                          if (mode === "suggesting") setLeftTab("edits");
+                        }
+                      : undefined
+                  }
+                  onSelectionChange={setDocSelection}
                 />
               </Card>
             </div>

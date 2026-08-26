@@ -11,14 +11,20 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
+  SlidersHorizontal,
   Sparkles,
   Users,
 } from "lucide-react";
 import { clearSession, getSession } from "@/lib/review-service";
+import { startSessionKeepAlive } from "@/lib/session-keepalive";
+import { SessionGuard } from "@/components/layout/session-guard";
 import type { UserSession } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
+  canAccessConfig,
+  canAccessConfigurations,
   canAccessContractsList,
   canAccessTasks,
   canAccessUsers,
@@ -43,6 +49,10 @@ export default function AppLayout({
   const [user, setUser] = useState<UserSession | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+
+  // Giữ phiên sống trong lúc tab còn mở. Đặt ở layout vì mọi màn trong dashboard
+  // đều đi qua đây — khỏi phải nhớ bật ở từng trang.
+  useEffect(() => startSessionKeepAlive(), []);
 
   useEffect(() => {
     const session = getSession();
@@ -76,7 +86,7 @@ export default function AppLayout({
   };
 
   const contractsLabel =
-    user?.role === "legal" || user?.role === "legal_lead" || user?.role === "it"
+    user?.role === "legal" || user?.role === "it"
       ? "Tất cả hợp đồng"
       : "Danh sách HĐ";
 
@@ -99,11 +109,33 @@ export default function AppLayout({
             name: contractsLabel,
             href: "/dashboard",
             icon:
-              user?.role === "legal" ||
-              user?.role === "legal_lead" ||
-              user?.role === "it"
+              user?.role === "legal" || user?.role === "it"
                 ? FileText
                 : LayoutDashboard,
+          },
+        ]
+      : []),
+    // Cấu hình checklist theo loại HĐ — thuộc Legal
+    ...(canAccessConfig(user)
+      ? [
+          {
+            name: "Cấu hình hợp đồng",
+            href: "/dashboard/config",
+            icon: SlidersHorizontal,
+          },
+        ]
+      : []),
+    // Form lists · Template · Phân quyền ký · System prompts
+    //
+    // Trước đây chỉ vào được qua menu «Thiết lập» nằm trong trang «Tất cả hợp
+    // đồng». Đứng ở màn khác thì không có đường nào bấm tới, và người dùng
+    // tưởng mình không có quyền — đã gặp thật với tài khoản `legal`.
+    ...(canAccessConfigurations(user)
+      ? [
+          {
+            name: "Thiết lập",
+            href: "/dashboard/configurations",
+            icon: Settings,
           },
         ]
       : []),
@@ -127,6 +159,9 @@ export default function AppLayout({
         lockViewport ? "h-dvh overflow-hidden" : "min-h-screen"
       )}
     >
+      {/* Cảnh báo phiên sắp hết. Đặt ở layout để mọi màn trong dashboard đều có
+          — và vì A4c bắt lưu thủ công, mất phiên im lặng là mất phần chưa lưu. */}
+      <SessionGuard />
       {/* Desktop collapse toggle (when sidebar collapsed — floating) */}
       {collapsed && (
         <button

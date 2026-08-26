@@ -55,6 +55,20 @@ def normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def fold_diacritics(text: str) -> str:
+    """
+    Bỏ dấu + hạ chữ thường, để khớp cả khi người dùng gõ tiếng Việt không dấu.
+
+    `đ`/`Đ` phải xử lý RIÊNG: nó là một codepoint độc lập, không phân rã được
+    bằng NFD như `ố` hay `ạ`. Bỏ sót nó thì "Đồng" gấp thành "đong" chứ không
+    phải "dong", và mọi phép so khớp không dấu đều trượt ở đúng những từ tiếng
+    Việt hay gặp nhất.
+    """
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    stripped = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
+    return stripped.replace("đ", "d")
+
+
 def sha256_text(text: str) -> str:
     return hashlib.sha256(normalize(text).encode("utf-8")).hexdigest()
 

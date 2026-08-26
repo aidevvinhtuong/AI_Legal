@@ -2,7 +2,6 @@ export type UserRole =
   | "purchasing"
   | "purchasing_manager"
   | "legal"
-  | "legal_lead"
   | "it";
 
 export type UserDepartment = "Purchasing" | "IT" | "Legal";
@@ -79,6 +78,22 @@ export interface EcontractPushResult {
   error?: string;
 }
 
+/**
+ * Danh bạ tối thiểu — `GET /api/v1/users/directory`.
+ *
+ * Tách khỏi `AppUser` vì hai API khác nhau về quyền: `AppUser` là màn quản trị
+ * của IT, còn danh bạ này mở cho cả `contract_config` để bảng Phân quyền ký
+ * chọn được người ký.
+ */
+export interface UserDirectoryEntry {
+  id: string;
+  username: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  active: boolean;
+}
+
 /** Tài khoản hệ thống (IT quản trị). */
 export interface AppUser {
   id: string;
@@ -112,6 +127,8 @@ export interface UserSession {
   role: UserRole;
   department: UserDepartment;
   permissions: PermissionKey[];
+  /** Trần tuyệt đối của phiên (ISO). Gia hạn quá mốc này thì phải đăng nhập lại. */
+  sessionExpiresAt?: string;
 }
 
 export interface DocumentCategory {
@@ -128,7 +145,13 @@ export interface ContractTypeConfig {
   group: ContractGroup;
   requireTemplateMatch: boolean;
   hasChecklist: boolean;
-  status: "draft" | "published" | "archived";
+  /**
+   * Backend chỉ phân biệt còn dùng (`active`) hay đã lưu trữ (`archived`) —
+   * workflow Draft/Publish đã bỏ khỏi Sprint 1. `draft`/`published` còn ở đây
+   * vì dữ liệu mock cũ dùng chúng; đừng so sánh bằng `=== "published"`, hãy
+   * kiểm `!== "archived"`.
+   */
+  status: "active" | "archived" | "draft" | "published";
 }
 
 export type DiscountFlag = "yes" | "no";
@@ -236,6 +259,181 @@ export interface MarkerAnchor {
   clause?: string | null;
   /** Nằm trong khối chữ ký — UI nên ưu tiên làm điểm hít. */
   recommended: boolean;
+}
+
+/** Payload của sự kiện SSE `status` trên `/reviews/{id}/events`. */
+export interface ReviewStatusEvent {
+  id: string;
+  status: ReviewStatus;
+  version: number;
+  queuePosition: number | null;
+  confidence: number;
+  failureReason: string | null;
+  allowedActions: string[];
+  updatedAt: string;
+}
+
+/** Một lượt trong thread bình luận. Append-only ở backend. */
+export interface CommentReply {
+  id: string;
+  content: string;
+  authorName: string;
+  authorRole: string;
+  createdAt: string;
+}
+
+/**
+ * Thread bình luận neo vào một đoạn / vùng của tài liệu (TH1).
+ *
+ * Neo là `permId` (vùng mở) hoặc `paraId` (đoạn bất kỳ, kể cả vùng KHOÁ).
+ * Comment vào vùng khoá là hợp lệ và cần thiết: hệ thống không ghi được vào đó,
+ * nhưng người duyệt vẫn phải nói được là muốn sửa gì.
+ *
+ * `orphaned` = tài liệu đã đổi và bình luận mất chỗ dựa. Backend nói ra thay vì
+ * gắn sang đoạn "gần giống" — đọc bình luận bên cạnh một câu chưa từng thấy còn
+ * tệ hơn.
+ */
+export interface CommentThread {
+  id: string;
+  anchorKind: "field" | "paragraph";
+  permId: string | null;
+  paraId: string | null;
+  ordinal: number;
+  citation: string;
+  quotedText: string;
+  status: "open" | "resolved" | "orphaned";
+  orphanReason: string | null;
+  versionNo: number;
+  authorName: string;
+  authorRole: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  replies: CommentReply[];
+}
+
+/**
+ * Đề xuất chỉnh sửa của người duyệt, dạng track changes (TH2).
+ *
+ * Tách hẳn khỏi `AiProposal`: đề xuất của AI truy vết về một lần chạy model,
+ * còn đề xuất ở đây là ý chí của một người có thẩm quyền — phải giữ danh tính.
+ * Blueprint yêu cầu hai lớp diff này không được trộn.
+ *
+ * `target: "locked"` KHÔNG phải lỗi. Đó là kết luận của server rằng đề xuất
+ * chạm vào phần Legal khoá: vẫn ghi nhận, vẫn hiện ra, nhưng không áp được và
+ * phải escalate cho Legal sửa template.
+ */
+export interface LegalEdit {
+  id: string;
+  paraId: string;
+  permId: string | null;
+  target: "open" | "locked";
+  kind: "insert" | "delete" | "replace" | "format";
+  /** Số điều khoản do Word sinh ("Điều 4.") — không có trong luồng text. */
+  citation: string;
+  ordinal: number;
+  /** Toàn văn đoạn, trước và sau khi áp đề xuất. */
+  originalText: string;
+  proposedText: string;
+  /** Chỉ mẩu đã đổi — server tự cắt tiền tố/hậu tố chung. */
+  removedText: string;
+  addedText: string;
+  offset: number;
+  status: "pending" | "applied" | "rejected" | "orphaned";
+  blockedReason: string | null;
+  versionNo: number;
+  authorName: string;
+  authorRole: string;
+  createdAt: string;
+  decidedAt: string | null;
+  decideNote: string | null;
+}
+
+/**
+ * Tệp đính kèm của một lượt duyệt (TH3) — **nội dung thật**, tải về được.
+ *
+ * Đừng nhầm với `ContractReview.attachments`: khoá đó là danh sách **tab tài
+ * liệu** của khung Word. Trộn hai thứ thì tệp PDF đính kèm sẽ hiện ra thành một
+ * tab tài liệu và khung Word cố mở nó như `.docx`.
+ */
+export interface AttachedFile {
+  id: string;
+  name: string;
+  size: number;
+  contentType: string;
+  sha256: string;
+  uploadedAt: string;
+  /** Đi qua endpoint kiểm quyền, không phải link trần. */
+  url: string;
+}
+
+/** Một vùng mở của template, kèm tên nghiệp vụ Legal đặt. */
+export interface TemplateRegion {
+  permId: string;
+  ordinal: number;
+  /** atomic_field | block_region | cross_table | empty */
+  regionKind: string;
+  paraCount: number;
+  label?: string | null;
+}
+
+/**
+ * Template `.docx` Legal ban hành — bản chuẩn để đối chiếu mọi file upload.
+ *
+ * Đăng ký lại là sinh **version mới**; bản cũ bị tắt `isActive` nhưng KHÔNG xoá
+ * vì review đang chạy vẫn trỏ vào version của nó.
+ */
+export interface ContractTemplateInfo {
+  id: string;
+  contractNameId: string;
+  version: number;
+  fileName: string;
+  sha256: string;
+  mechanism: string;
+  /** Restrict Editing có hiệu lực không — `false` là template không dùng được. */
+  protectionEffective: boolean;
+  openRegionCount: number;
+  lockedFingerprint: string;
+  structureFingerprint: string;
+  isActive: boolean;
+  registeredAt: string;
+  fieldLabels: Record<string, string>;
+  regions: TemplateRegion[];
+  lockedParagraphCount: number;
+  downloadUrl: string;
+}
+
+/** Một điểm không đạt khi kiểm định template. */
+export interface TemplateIssue {
+  type: string;
+  location: string;
+  field_id?: string | null;
+  diff_preview?: string | null;
+}
+
+/** Kết quả `POST /templates/lint` — soi thử, KHÔNG lưu gì. */
+export interface TemplateLintResult {
+  fileName: string;
+  mechanism: string;
+  protectionEffective: boolean;
+  openRegionCount: number;
+  writableRegionCount: number;
+  paragraphCount: number;
+  lockedParagraphCount: number;
+  countsByKind: Record<string, number>;
+  commentCount: number;
+  hasTrackedChanges: boolean;
+  regions: {
+    permId: string;
+    ordinal: number;
+    regionKind: string;
+    writable: boolean;
+    paraCount: number;
+    charLen: number;
+    inTable: boolean;
+    preview: string;
+  }[];
+  issues: TemplateIssue[];
+  acceptable: boolean;
 }
 
 export interface MarkerIssue {
@@ -405,6 +603,8 @@ export interface ContractReview {
   fileNames?: string[];
   /** Chi tiết từng file — dùng cho tab Word (1 tab / file) */
   attachments?: ReviewAttachment[];
+  /** Tệp đính kèm của các lượt duyệt (TH3). KHÔNG phải tab Word — xem `AttachedFile`. */
+  attachedFiles?: AttachedFile[];
   /** URL public tới .docx gốc để nhúng preview (docx-preview) */
   originalDocxUrl?: string;
   /** URL public tới .docx AI-reviewed (nếu có) */
@@ -433,4 +633,12 @@ export interface ContractReview {
   intake?: DocumentIntakeMeta;
   /** Kết quả tích hợp FPT.eContract gần nhất */
   econtract?: EcontractPushResult;
+  /**
+   * Số phiên bản bản ghi — dùng cho optimistic locking.
+   *
+   * Gửi lại bằng header `If-Match` ở mọi lệnh ghi; backend trả 409 nếu bản ghi
+   * đã đổi từ lúc đọc. Thiếu nó thì hai tab cùng mở một ticket sẽ âm thầm ghi
+   * đè nhau (CLAUDE.md mục 5.6).
+   */
+  rowVersion?: number;
 }

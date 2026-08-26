@@ -16,7 +16,12 @@ export { defaultFormLists };
 
 export async function fetchFormLists(): Promise<FormListsState> {
   if (USE_MOCK) return loadFormLists();
-  return api.get("/api/v1/form-lists") as Promise<FormListsState>;
+  // `includeArchived=true`: đây là màn quản trị, phải thấy cả mục đã lưu trữ thì
+  // nút "Hiện mục đã lưu trữ" và nút Khôi phục mới có gì để hiện. Dropdown trên
+  // form Tạo tài liệu dùng `/catalogs`, vốn đã lọc sẵn chỉ còn `active`.
+  return api.get(
+    "/api/v1/form-lists?includeArchived=true"
+  ) as Promise<FormListsState>;
 }
 
 export async function persistFormLists(

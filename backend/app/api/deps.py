@@ -37,6 +37,22 @@ def _bearer(authorization: str | None) -> str:
     return authorization[7:].strip()
 
 
+def access_claims(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict:
+    """
+    Claims thô của token đang dùng.
+
+    Cần cho `/auth/refresh`: nó phải đọc `lgn` (thời điểm đăng nhập gốc) để biết
+    phiên đã chạm trần tuyệt đối chưa. `Principal` cố tình không mang thông tin
+    đó — nó dựng lại từ DB, mà DB thì không biết phiên này bắt đầu lúc nào.
+    """
+    return decode_access_token(_bearer(authorization))
+
+
+AccessClaims = Annotated[dict, Depends(access_claims)]
+
+
 def current_principal(
     db: DbSession,
     authorization: Annotated[str | None, Header()] = None,
@@ -105,6 +121,19 @@ def if_match(request: Request) -> int | None:
 def assert_fresh(expected: int | None, actual: int) -> None:
     if expected is not None and expected != actual:
         raise StaleVersionError(expected=expected, actual=actual)
+
+
+def fresh_row_version(db, entity) -> int:
+    """
+    Đọc lại `row_version` SAU khi ghi.
+
+    `row_version` do trigger Postgres tăng trong lúc UPDATE, nên object trong
+    session vẫn giữ giá trị cũ. Trả ETag từ giá trị cũ thì client dùng nó cho
+    lần ghi kế tiếp và ăn 409 dù chẳng có ai sửa cùng — một xung đột giả.
+    """
+    db.flush()
+    db.refresh(entity, ["row_version"])
+    return int(entity.row_version)
 
 
 def etag(row_version: int) -> str:

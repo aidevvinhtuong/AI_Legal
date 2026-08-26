@@ -150,6 +150,26 @@ TRANSITIONS: tuple[Transition, ...] = (
         owner_only=True,
         note="Chạy lại AI review",
     ),
+    Transition(
+        action=ReviewAction.REUPLOAD,
+        sources=frozenset(
+            {
+                ReviewStatus.DRAFT,
+                ReviewStatus.REVIEWED,
+                ReviewStatus.AWAITING_MARKERS,
+                ReviewStatus.REJECTED,
+                ReviewStatus.FAILED,
+            }
+        ),
+        target=ReviewStatus.QUEUED,
+        actors=_OWNERS,
+        owner_only=True,
+        note=(
+            "PT3: tải về sửa bằng Word rồi upload lại. Là VÒNG REVIEW MỚI — "
+            "file thay đổi ngoài tầm kiểm soát của hệ thống nên phải chạy lại "
+            "toàn bộ AI Engine, không dùng lại kết quả cũ"
+        ),
+    ),
     # ── Trình duyệt ───────────────────────────────────────────────────────
     Transition(
         action=ReviewAction.SUBMIT_APPROVAL,

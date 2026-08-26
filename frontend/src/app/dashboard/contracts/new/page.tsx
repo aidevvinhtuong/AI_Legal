@@ -206,7 +206,10 @@ export default function NewReviewPage() {
     setSubmitting(true);
     try {
       const review = await createReview({
-        contractTypeId: intakeForm.contractTypeId,
+        // Khoá checklist AI là slug **Tên hợp đồng**, không phải "Loại giá trị
+        // hợp đồng" (`intakeForm.contractTypeId` = ct_standard / ct_high_value).
+        // Gửi nhầm thì AI chạy với checklist rỗng mà không báo gì.
+        contractTypeId: intake.contractNameId || intakeForm.contractTypeId,
         title: intakeForm.documentName.trim(),
         prompt: intakeForm.prompt,
         files: [reviewFile],

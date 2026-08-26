@@ -249,7 +249,7 @@ export interface ConfigAuditEntry {
 
 /** Phân quyền cấu hình (khác RBAC xem hợp đồng). */
 export interface ConfigPermission {
-  role: "legal" | "legal_lead" | "purchasing" | "admin" | "it";
+  role: "legal" | "purchasing" | "admin" | "it";
   canView: boolean;
   /** Quyền sửa / lưu cấu hình (tên cũ canEditDraft giữ tương thích). */
   canEditDraft: boolean;
@@ -260,14 +260,6 @@ export interface ConfigPermission {
 export const DEFAULT_CONFIG_PERMISSIONS: ConfigPermission[] = [
   {
     role: "legal",
-    canView: true,
-    canEditDraft: true,
-    canImportExport: true,
-    canViewAudit: true,
-  },
-  /** @deprecated — gộp vào Legal; giữ để session cũ không lỗi. */
-  {
-    role: "legal_lead",
     canView: true,
     canEditDraft: true,
     canImportExport: true,

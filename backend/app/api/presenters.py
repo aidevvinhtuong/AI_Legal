@@ -53,6 +53,25 @@ def user_out(user: User) -> dict[str, Any]:
     }
 
 
+def user_directory_out(user: User) -> dict[str, Any]:
+    """
+    Danh bạ tối thiểu — chỉ đủ để chọn người ký trên bảng Phân quyền ký.
+
+    Cố ý KHÔNG dùng `user_out`: bảng đó cần Legal đọc được (quyền
+    `contract_config`), mà `user_out` còn kèm `permissions`, `role`,
+    `department`, `lineManagerId` — dữ liệu quản trị của IT, không việc gì phải
+    lộ ra chỉ để hiện một dropdown tên người.
+    """
+    return {
+        "id": str(user.id),
+        "username": user.username,
+        "fullName": user.full_name,
+        "email": user.email,
+        "phone": user.phone,
+        "active": user.active,
+    }
+
+
 def session_out(user: User, token: str, permissions: list[str]) -> dict[str, Any]:
     return {
         "token": token,
@@ -198,6 +217,7 @@ def review_out(
     feedback: list[FeedbackItem] | None = None,
     versions: list[tuple[ReviewVersion, ReviewFile | None]] | None = None,
     files: dict[str, ReviewFile] | None = None,
+    attached_files: list[ReviewFile] | None = None,
 ) -> dict[str, Any]:
     """
     `ContractReview` đầy đủ — FE thay nguyên state bằng object này sau mỗi
@@ -240,7 +260,23 @@ def review_out(
         "econtractDocxUrl": (
             f"{API_PREFIX}/reviews/{review.id}/files/econtract" if files.get("econtract") else None
         ),
+        # `attachments` là TAB TÀI LIỆU của khung Word — giữ rỗng, đừng nhét tệp
+        # đính kèm vào đây, chúng sẽ hiện ra thành các tab tài liệu giả.
         "attachments": [],
+        # Tệp đính kèm của các lượt duyệt (TH3) — nội dung THẬT, tải được.
+        # Blueprint A4 đòi đúng điều này; trước đó chỉ lưu `{name, size}`.
+        "attachedFiles": [
+            {
+                "id": str(f.id),
+                "name": f.file_name,
+                "size": f.size_bytes,
+                "contentType": f.content_type,
+                "sha256": f.sha256,
+                "uploadedAt": iso(f.created_at),
+                "url": f"{API_PREFIX}/reviews/{review.id}/attachments/{f.id}",
+            }
+            for f in (attached_files or [])
+        ],
         "prompt": review.prompt,
         "version": review.version,
         "versionHistory": [version_out(v, f) for v, f in (versions or [])],

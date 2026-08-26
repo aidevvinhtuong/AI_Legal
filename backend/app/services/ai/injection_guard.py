@@ -19,8 +19,9 @@ thiệt hại — thiệt hại đã bị chặn ở chỗ khác rồi.
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass
+
+from app.services.document.model import fold_diacritics
 
 DATA_OPEN = "<<<DU_LIEU_HOP_DONG>>>"
 DATA_CLOSE = "<<<HET_DU_LIEU>>>"
@@ -60,11 +61,9 @@ class InjectionFinding:
         )
 
 
-def _fold(text: str) -> str:
-    """Bỏ dấu + hạ chữ thường để một mẫu bắt được cả 'bỏ qua' lẫn 'bo qua'."""
-    decomposed = unicodedata.normalize("NFD", text.lower())
-    stripped = "".join(c for c in decomposed if unicodedata.category(c) != "Mn")
-    return stripped.replace("đ", "d")
+# Gấp dấu dùng bản chung ở `services/document/model` — trước đây mỗi module tự
+# viết một bản, và bản của `chat` thiếu xử lý `đ` nên khớp không dấu bị trượt.
+_fold = fold_diacritics
 
 
 def scan(text: str, *, field_id: str | None = None) -> list[InjectionFinding]:

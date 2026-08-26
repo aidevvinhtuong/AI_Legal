@@ -68,7 +68,6 @@ export function defaultPermissionsForRole(role: UserRole): PermissionKey[] {
     case "it":
       return [...ALL_KEYS];
     case "legal":
-    case "legal_lead":
       return ["task", "contracts", "contract_config"];
     case "purchasing_manager":
       return ["task", "contracts"];

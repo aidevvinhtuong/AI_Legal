@@ -127,7 +127,12 @@ class LlmClient:
 
         if json_schema is not None:
             try:
-                result.data = json.loads(content)
+                # `strict=False` cho phép ký tự điều khiển THÔ bên trong chuỗi.
+                # Guided decoding vẫn để lọt xuống dòng thật trong `new_text` khi
+                # đề xuất là văn bản nhiều dòng, và `json.loads` mặc định từ chối
+                # — mất cả lượt chat vì một dấu xuống dòng. Đo được trên máy dev:
+                # "Invalid control character at line 6 column 61".
+                result.data = json.loads(content, strict=False)
             except json.JSONDecodeError as e:
                 # Guided decoding lẽ ra ngăn được; nếu vẫn xảy ra thì đó là lỗi
                 # hạ tầng, không phải lỗi nội dung — để tầng trên rơi xuống fallback.

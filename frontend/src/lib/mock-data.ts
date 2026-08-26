@@ -452,16 +452,6 @@ export const MOCK_USERS = {
     department: "Legal",
     permissions: defaultPermissionsForRole("legal"),
   },
-  legal_lead: {
-    token: "mock-legal-lead-token",
-    userId: "usr_legal_lead",
-    username: "legal.lead",
-    name: "Trần Thị Legal Lead",
-    email: "legal.lead@saint-gobain.com",
-    role: "legal_lead",
-    department: "Legal",
-    permissions: defaultPermissionsForRole("legal_lead"),
-  },
   it: {
     token: "mock-it-token",
     userId: "usr_admin",

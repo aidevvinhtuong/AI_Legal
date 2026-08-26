@@ -1,4 +1,4 @@
-import { api, fetchBinary, ECONTRACT_LIVE, USE_MOCK } from "@/lib/api";
+import { api, ApiError, fetchBinary, ECONTRACT_LIVE, USE_MOCK } from "@/lib/api";
 import {
   loadFormLists,
   type CodeLabelOption,
@@ -12,7 +12,6 @@ import {
 } from "@/lib/document-number";
 import {
   CONTRACT_TYPES,
-  MOCK_USERS,
   buildAttachments,
   createMockReview,
   getReview,
@@ -32,12 +31,17 @@ import type {
   DocumentIntakeMeta,
   EcontractSignType,
   EditableField,
+  AttachedFile,
+  CommentThread,
+  LegalEdit,
+  ContractTemplateInfo,
   MarkerAnchor,
   MarkerIssue,
+  ReviewStatusEvent,
   MarkerType,
   SignRecipient,
   StructuredFeedbackItem,
-  UserRole,
+  TemplateLintResult,
   UserSession,
 } from "@/lib/types";
 
@@ -82,6 +86,12 @@ export function getSession(): UserSession | null {
 export function setSession(user: UserSession) {
   localStorage.setItem("token", user.token);
   localStorage.setItem("user", JSON.stringify(user));
+  // Trần TUYỆT ĐỐI của phiên — khác hạn của token. Token được gia hạn liên tục
+  // trong lúc còn làm việc; mốc này thì không đẩy được, vì nó tính từ lần nhập
+  // mật khẩu gốc.
+  if (user.sessionExpiresAt) {
+    localStorage.setItem("sessionExpiresAt", user.sessionExpiresAt);
+  }
 }
 
 /** Lưu / lấy TK+MK đăng nhập AI Legal để gọi FPT.eContract login (username/password API). */
@@ -117,25 +127,6 @@ export function clearSession() {
   if (typeof window !== "undefined") {
     sessionStorage.removeItem(ECONTRACT_LOGIN_KEY);
   }
-}
-
-export async function loginAs(role: UserRole): Promise<UserSession> {
-  if (USE_MOCK) {
-    await delay(200);
-    const user = MOCK_USERS[role];
-    setSession(user);
-    const { getUserByUsername } = await import("@/lib/user-store");
-    const account = getUserByUsername(user.username);
-    if (account) {
-      setEcontractUserLogin(account.username, account.password);
-    }
-    return user;
-  }
-  const user = (await api.post("/api/v1/auth/login", { role }, {
-    skipAuthRedirect: true,
-  })) as UserSession;
-  setSession(user);
-  return user;
 }
 
 export async function loginWithCredentials(
@@ -292,12 +283,38 @@ export async function createReview(input: {
   contractTypeId: string;
   title: string;
   prompt?: string;
-  /** Hợp đồng review — đúng 1 file .docx */
+  /** Hợp đồng review — đúng 1 file .docx. Bỏ trống khi `fromTemplate`. */
   files: File[];
   /** Hợp đồng tham khảo — nhiều file (tuỳ chọn) */
   referenceFiles?: File[];
   intake: DocumentIntakeMeta;
+  /**
+   * **Đường chính**: hệ thống sinh tài liệu từ template Legal đã đăng ký, KHÔNG
+   * nhận file từ người dùng. Khi đó kiểm kê vùng mở/khoá tin cậy tuyệt đối vì
+   * file do chính hệ thống sinh ra (CLAUDE.md 5.1).
+   *
+   * Đường upload bên dưới là đường phụ và bắt buộc qua ràng buộc cấu trúc.
+   */
+  fromTemplate?: boolean;
+  /**
+   * `full` = luồng «Tạo tài liệu» đầy đủ; `quick` = «Review hợp đồng» nhanh.
+   *
+   * Backend dùng cờ này để chặn ticket quick ở mọi bước sau `reviewed`
+   * (Blueprint §1.3.7). Không gửi thì backend mặc định `full` và cổng chặn đó
+   * không bao giờ có hiệu lực.
+   */
+  kind?: "full" | "quick";
 }): Promise<ContractReview> {
+  if (input.fromTemplate && !USE_MOCK) {
+    const form = new FormData();
+    form.append("contract_type_id", input.contractTypeId);
+    form.append("title", input.title);
+    form.append("prompt", input.prompt || "");
+    form.append("intake", JSON.stringify(input.intake));
+    form.append("kind", input.kind || "full");
+    form.append("from_template", "true");
+    return api.post("/api/v1/reviews", form);
+  }
   if (!input.files.length) {
     throw new Error("Cần tải lên một file .docx (Hợp đồng review)");
   }
@@ -419,7 +436,11 @@ export async function createReview(input: {
   form.append("title", input.title);
   form.append("prompt", input.prompt || "");
   form.append("intake", JSON.stringify(input.intake));
+  form.append("kind", input.kind || "full");
   form.append("files", primary);
+  // Backend Sprint 1 nhận đúng một tệp và TỪ CHỐI nếu có `reference_files`
+  // (mã lỗi `reference_files_unsupported`). Chỉ gửi khi thật sự có file, để
+  // không biến một form không đính kèm gì thành lỗi 400.
   references.forEach((f) => form.append("reference_files", f));
   return api.post("/api/v1/reviews", form);
 }
@@ -466,7 +487,10 @@ export async function createQuickReview(input: {
   const base = bases[0];
   const type =
     types.find((t) => t.id === input.contractTypeId) ||
-    types.find((t) => t.hasChecklist && t.status === "published") ||
+    // `!== "archived"` chứ không phải `=== "published"`: backend trả `active`,
+    // nên so bằng "published" luôn trượt và rơi xuống `types[0]` — tức là chọn
+    // đại loại giá trị HĐ đầu bảng thay vì loại thật sự có checklist.
+    types.find((t) => t.hasChecklist && t.status !== "archived") ||
     types[0];
   if (!entity || !type) {
     throw new Error("Thiếu cấu hình công ty / loại giá trị HĐ");
@@ -499,6 +523,7 @@ export async function createQuickReview(input: {
     prompt: input.prompt || "",
     files: [file],
     intake,
+    kind: "quick",
   });
 }
 
@@ -557,7 +582,9 @@ export async function updateReviewIntake(
     intake: DocumentIntakeMeta;
     contractTypeId: string;
     prompt?: string;
-  }
+  },
+  /** `review.rowVersion` đọc được lúc mở màn — chặn ghi đè khi có tab khác. */
+  rowVersion?: number
 ): Promise<ContractReview> {
   if (USE_MOCK) {
     await delay(250);
@@ -616,7 +643,9 @@ export async function updateReviewIntake(
     upsertReview(review);
     return review;
   }
-  return api.patch(`/api/v1/reviews/${id}/intake`, input);
+  return api.patch(`/api/v1/reviews/${id}/intake`, input, {
+    ifMatch: rowVersion,
+  });
 }
 
 /** Nháp → đưa vào Processing Queue để AI review. */
@@ -649,10 +678,17 @@ export async function submitDraftToQueue(id: string): Promise<ContractReview> {
   return api.post(`/api/v1/reviews/${id}/retry-ai`);
 }
 
+/**
+ * Một lượt chat. Trả về **ticket đầy đủ** đã cập nhật (kể cả `proposals` mới).
+ *
+ * Backend trả nguyên `ContractReview` chứ không trả `{review, reply}` — FE thay
+ * hẳn state bằng object này sau mỗi mutation, nên endpoint nào sửa ticket cũng
+ * trả bản đầy đủ. Bản mock dựng lại cùng hình dạng để hai nhánh dùng chung.
+ */
 export async function sendChat(
   id: string,
   content: string
-): Promise<{ review: ContractReview; reply: ChatMessage }> {
+): Promise<ContractReview> {
   if (USE_MOCK) {
     await delay(600);
     const review = getReview(id);
@@ -675,7 +711,7 @@ export async function sendChat(
       `\n\n[Chat update] ${content.slice(0, 80)}`;
     review.updatedAt = new Date().toISOString();
     upsertReview(review);
-    return { review, reply };
+    return review;
   }
   return api.post(`/api/v1/reviews/${id}/chat`, { content });
 }
@@ -683,7 +719,7 @@ export async function sendChat(
 export async function updateProposalStatus(
   id: string,
   proposalId: string,
-  status: "accepted" | "undone"
+  status: "accepted" | "undone" | "rejected"
 ): Promise<ContractReview> {
   if (USE_MOCK) {
     await delay(200);
@@ -856,7 +892,9 @@ export async function updateReviewedSection(
 
 export async function saveFields(
   id: string,
-  fields: EditableField[]
+  fields: EditableField[],
+  /** `review.rowVersion` đọc được lúc mở màn — chặn ghi đè khi có tab khác. */
+  rowVersion?: number
 ): Promise<ContractReview> {
   if (USE_MOCK) {
     await delay(300);
@@ -947,7 +985,7 @@ export async function saveFields(
     upsertReview(review);
     return review;
   }
-  return api.put(`/api/v1/reviews/${id}/fields`, { fields });
+  return api.put(`/api/v1/reviews/${id}/fields`, { fields }, { ifMatch: rowVersion });
 }
 
 import {
@@ -967,45 +1005,6 @@ export {
   validateIdentifySigners,
   validateMarkers,
 } from "@/lib/econtract-flow";
-
-export async function assignMarker(
-  id: string,
-  recipientId: string,
-  positionLabel: string,
-  height = 100
-): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(200);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    review.recipients = review.recipients.map((r) => {
-      if (r.id !== recipientId) return r;
-      return {
-        ...r,
-        marker: {
-          id: `${r.markerType}_${r.refRecipientId ?? r.id}`,
-          type: r.markerType,
-          height,
-          positionLabel,
-        },
-      };
-    });
-    const allAssigned = review.recipients
-      .filter(recipientNeedsMarker)
-      .every((r) => r.marker);
-    if (allAssigned && review.status === "reviewed") {
-      review.status = "awaiting_markers";
-    }
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
-  return api.post(`/api/v1/reviews/${id}/markers`, {
-    recipientId,
-    positionLabel,
-    height,
-  });
-}
 
 /** Cập nhật thông tin người ký (email, orgName, hình thức ký...) trước khi đẩy eContract. */
 export async function updateRecipient(
@@ -1321,6 +1320,189 @@ export async function getEcontractStatus(id: string): Promise<{
  * Đây là thứ thay cho "trang + toạ độ": người dùng kéo-thả rồi UI hít vào một
  * anchor trong danh sách này, và gửi `paraId` của nó lên BE.
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// Template hợp đồng (Legal)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function listTemplates(
+  contractNameId?: string
+): Promise<ContractTemplateInfo[]> {
+  const q = contractNameId ? `?contract_name_id=${encodeURIComponent(contractNameId)}` : "";
+  return api.get(`/api/v1/templates${q}`);
+}
+
+/**
+ * Soi thử một `.docx` mà **không lưu gì**.
+ *
+ * Cho Legal thấy trước: vùng mở nào hệ thống ghi được, vùng nào chỉ chú thích,
+ * Restrict Editing có hiệu lực không. Nhận vào rồi mới phát hiện thì mọi file
+ * sinh từ template đó đều coi cả tài liệu là vùng mở.
+ */
+export async function lintTemplate(file: File): Promise<TemplateLintResult> {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post("/api/v1/templates/lint", form);
+}
+
+export async function registerTemplate(
+  contractNameId: string,
+  file: File,
+  fieldLabels: Record<string, string> = {}
+): Promise<ContractTemplateInfo> {
+  const form = new FormData();
+  form.append("contract_name_id", contractNameId);
+  form.append("field_labels", JSON.stringify(fieldLabels));
+  form.append("file", file);
+  return api.post("/api/v1/templates", form);
+}
+
+/**
+ * Đặt tên nghiệp vụ cho từng vùng mở.
+ *
+ * Bắt buộc phải có: `permId` của Range Permission là **số nguyên ngẫu nhiên
+ * không tên** (`1808140627`…). Không có bảng này thì UI chỉ hiện "Vùng mở #7"
+ * và AI không biết vùng đó là điều khoản gì.
+ */
+export async function setTemplateFieldLabels(
+  templateId: string,
+  labels: Record<string, string>
+): Promise<ContractTemplateInfo> {
+  return api.put(`/api/v1/templates/${templateId}/field-labels`, { labels });
+}
+
+export async function getActiveTemplate(contractNameId: string): Promise<{
+  contractNameId: string;
+  requireTemplateMatch: boolean;
+  template: ContractTemplateInfo | null;
+}> {
+  return api.get(`/api/v1/templates/active/${encodeURIComponent(contractNameId)}`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Comment 2 chiều (TH1)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Thread bình luận của một ticket.
+ *
+ * Backend tái neo ngay trong lần đọc này: tài liệu đổi được từ nhiều đường
+ * (ghi trường, chat, reupload PT3), nên thread mất neo sẽ trả về `orphaned`
+ * kèm lý do chứ không im lặng.
+ */
+export async function listComments(id: string): Promise<CommentThread[]> {
+  if (USE_MOCK) {
+    await delay(80);
+    return [];
+  }
+  return api.get(`/api/v1/reviews/${id}/comments`);
+}
+
+/** Mở thread mới. Neo bằng `permId` (vùng mở) HOẶC `paraId` (đoạn bất kỳ). */
+export async function createComment(
+  id: string,
+  anchor: { permId?: string; paraId?: string },
+  content: string
+): Promise<CommentThread> {
+  return api.post(`/api/v1/reviews/${id}/comments`, { ...anchor, content });
+}
+
+export async function replyComment(
+  id: string,
+  threadId: string,
+  content: string
+): Promise<CommentThread> {
+  return api.post(`/api/v1/reviews/${id}/comments/${threadId}/replies`, {
+    content,
+  });
+}
+
+/**
+ * Đóng thread. **Không** đổi trạng thái ticket — quy tắc A4b: yêu cầu chỉnh sửa
+ * phải kết thúc bằng Từ chối, không phải bằng việc đóng bình luận.
+ */
+export async function resolveComment(
+  id: string,
+  threadId: string
+): Promise<CommentThread> {
+  return api.post(`/api/v1/reviews/${id}/comments/${threadId}/resolve`);
+}
+
+/**
+ * Theo dõi trạng thái ticket bằng SSE thay cho polling.
+ *
+ * Dùng `fetch` + `ReadableStream` chứ KHÔNG dùng `EventSource`: `EventSource`
+ * không gửi được header nên token phải nhét vào query string, và token trong URL
+ * thì rơi vào access log của proxy, vào history trình duyệt, vào Referer. Với hệ
+ * thống pháp chế thì đó là cái giá quá đắt cho một tiện lợi nhỏ.
+ *
+ * Trả về hàm dừng. Stream tự đóng khi ticket sang trạng thái chờ người dùng
+ * thao tác (`reviewed`, `rejected`, `pending_markers`, `signed`, …).
+ */
+export function watchReviewStatus(
+  id: string,
+  handlers: {
+    onStatus?: (s: ReviewStatusEvent) => void;
+    onDone?: () => void;
+    onError?: (message: string) => void;
+  }
+): () => void {
+  if (USE_MOCK || typeof window === "undefined") return () => undefined;
+
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const token = localStorage.getItem("token") || "";
+      const res = await fetch(`/api/v1/reviews/${id}/events`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        throw new Error(`SSE ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Khung SSE kết thúc bằng dòng trống; giữ phần dở dang lại cho lần sau
+        const frames = buffer.split("\n\n");
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) {
+          const event =
+            frame.match(/^event:\s*(.+)$/m)?.[1]?.trim() || "message";
+          const data = frame.match(/^data:\s*(.*)$/m)?.[1] ?? "";
+          if (event === "done") {
+            handlers.onDone?.();
+            controller.abort();
+            return;
+          }
+          if (event === "status" && data) {
+            try {
+              handlers.onStatus?.(JSON.parse(data) as ReviewStatusEvent);
+            } catch {
+              /* payload lỗi — bỏ qua, nhịp sau sẽ có bản mới */
+            }
+          }
+        }
+      }
+      handlers.onDone?.();
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      handlers.onError?.(
+        e instanceof Error ? e.message : "Mất kết nối theo dõi trạng thái"
+      );
+    }
+  })();
+
+  return () => controller.abort();
+}
+
 export async function getMarkerAnchors(
   id: string,
   opts?: { recommendedOnly?: boolean }
@@ -1499,7 +1681,15 @@ export async function applySigningMatrix(
     upsertReview(review);
     return { review, bandLabel: resolved.bandLabel };
   }
-  return api.post(`/api/v1/reviews/${id}/apply-signing-matrix`, {});
+  // BE trả review PHẲNG kèm `bandLabel` (`{...review, bandLabel}`), không phải
+  // `{review, bandLabel}` như nhánh mock. Không tách ra ở đây thì nơi gọi
+  // destructure `{ review }` sẽ nhận undefined và vỡ ở dòng ngay sau.
+  const body = (await api.post(
+    `/api/v1/reviews/${id}/apply-signing-matrix`,
+    {}
+  )) as ContractReview & { bandLabel?: string };
+  const { bandLabel = "", ...review } = body;
+  return { review: review as ContractReview, bandLabel };
 }
 
 async function fetchDocxBytes(url: string): Promise<ArrayBuffer> {
@@ -1514,7 +1704,8 @@ async function fetchDocxBytes(url: string): Promise<ArrayBuffer> {
  */
 export async function reuploadSubmit(
   contractId: string,
-  file: File
+  file: File,
+  note = ""
 ): Promise<ContractReview> {
   if (!file.name.toLowerCase().endsWith(".docx")) {
     throw new ReuploadValidationError([
@@ -1594,9 +1785,25 @@ export async function reuploadSubmit(
     return review;
   }
 
+  // Backend kiểm hai lớp và CHẶN CỨNG nếu lệch (ràng buộc C-4). Không gửi kèm
+  // kết quả validate phía FE: nếu backend tin client thì mọi lớp kiểm ở đây chỉ
+  // là trang trí. FE validate chỉ để báo sớm cho người dùng, không phải để
+  // backend dựa vào.
   const form = new FormData();
-  form.append("file", file);
-  return api.post(`/api/v1/reviews/${contractId}/reupload`, form) as Promise<ContractReview>;
+  form.append("file", file, file.name);
+  if (note) form.append("note", note);
+
+  try {
+    return await api.post(`/api/v1/reviews/${contractId}/reupload`, form);
+  } catch (e) {
+    // 422 kèm `issues[]` → dựng lại thành lỗi mà UI đã biết hiển thị
+    const body = e instanceof ApiError ? (e.body as Record<string, unknown>) : null;
+    const issues = body?.issues;
+    if (Array.isArray(issues) && issues.length) {
+      throw new ReuploadValidationError(issues as FieldStructureIssue[]);
+    }
+    throw e;
+  }
 }
 
 export { ReuploadValidationError, formatIssueMessage };
@@ -1606,3 +1813,76 @@ export function buildEcontractPayload(review: ContractReview) {
   return buildEcontractPayloadFromFlow(review, "<base64 file PDF đã chèn marker mực trắng>");
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Track changes của người duyệt (TH2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Một đề xuất đọc từ SuperDoc. Không có `permId`: vùng đích do server giải. */
+export interface LegalEditDraft {
+  paraId: string;
+  kind: "insert" | "delete" | "replace" | "format";
+  before: string;
+  after: string;
+}
+
+export async function listLegalEdits(id: string): Promise<LegalEdit[]> {
+  return api.get(`/api/v1/reviews/${id}/legal-edits`);
+}
+
+/**
+ * Gửi đề xuất đọc từ track changes.
+ *
+ * Gửi lại cùng một đoạn thì backend **ghi đè** đề xuất còn treo của chính người
+ * này — người duyệt chỉnh lại góp ý là chuyện thường, không nên đẻ ra bản thứ
+ * hai. Đề xuất đã áp hoặc đã bỏ thì giữ nguyên làm lịch sử.
+ */
+export async function submitLegalEdits(
+  id: string,
+  edits: LegalEditDraft[]
+): Promise<LegalEdit[]> {
+  return api.post(`/api/v1/reviews/${id}/legal-edits`, { edits });
+}
+
+/**
+ * Áp hoặc bỏ một đề xuất.
+ *
+ * `apply` sinh version mới ở backend nên trả về cả ticket — state của FE cũ
+ * ngay lúc đó.
+ */
+export async function decideLegalEdit(
+  id: string,
+  editId: string,
+  action: "apply" | "reject",
+  note = ""
+): Promise<{ edits: LegalEdit[]; review: ContractReview }> {
+  return api.post(`/api/v1/reviews/${id}/legal-edits/${editId}/decide`, {
+    action,
+    note,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tệp đính kèm của lượt duyệt (TH3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export async function listAttachments(id: string): Promise<AttachedFile[]> {
+  return api.get(`/api/v1/reviews/${id}/attachments`);
+}
+
+/**
+ * Đính kèm một tệp — lưu **nội dung thật** vào object storage.
+ *
+ * Khác `reuploadSubmit`: KHÔNG thay tài liệu, không bump version, không chạy lại
+ * AI, và không bị đối chiếu cấu trúc. Đây là vật chứng đi kèm một ý kiến.
+ */
+export async function addAttachment(
+  id: string,
+  file: File,
+  note = ""
+): Promise<AttachedFile> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  if (note) form.append("note", note);
+  return api.post(`/api/v1/reviews/${id}/attachments`, form);
+}

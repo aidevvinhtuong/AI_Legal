@@ -307,6 +307,37 @@ def delete_config(config_id: str, principal: CurrentUser, db: DbSession) -> dict
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Bí danh theo lớp cấu hình
+#
+# FE gọi cấu hình bằng **khoá nghiệp vụ** (`contract-types/{slug}` cho overlay
+# Tên HĐ, `parent-categories/{slug}` cho checklist Loại HĐ cha) chứ không bằng
+# id bản ghi. `_load` đã nhận cả slug lẫn uuid, nên đây thuần là ba cặp tên
+# đường dẫn trỏ về đúng ba handler ở trên — không nhân bản luật nào.
+# ─────────────────────────────────────────────────────────────────────────────
+for _prefix in ("contract-types", "parent-categories"):
+    router.add_api_route(
+        f"/{_prefix}/{{config_id}}/archive",
+        archive_config,
+        methods=["POST"],
+        summary=f"Lưu trữ cấu hình ({_prefix})",
+    )
+    router.add_api_route(
+        f"/{_prefix}/{{config_id}}/restore",
+        restore_config,
+        methods=["POST"],
+        summary=f"Khôi phục cấu hình ({_prefix})",
+    )
+    # Với lớp cha, `delete_config` từ chối kèm lý do (chỉ được Lưu trữ) — cố ý
+    # dùng chung handler để luật đó chỉ tồn tại ở một chỗ.
+    router.add_api_route(
+        f"/{_prefix}/{{config_id}}",
+        delete_config,
+        methods=["DELETE"],
+        summary=f"Xoá cấu hình ({_prefix})",
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 def _load(db, config_id: str) -> ChecklistConfig:
     import uuid as _uuid
 

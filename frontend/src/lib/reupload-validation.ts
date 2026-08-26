@@ -9,8 +9,26 @@ import {
   type DocxFieldInventory,
 } from "@/lib/docx-content-controls";
 
+/**
+ * Một điểm không khớp cấu trúc, do backend phát ra.
+ *
+ * Bảy loại, không phải ba. Bản đầu của type này chỉ khai ba loại của lớp validate
+ * phía FE, nên bốn loại còn lại của backend rơi vào nhánh `default` của
+ * `formatIssueMessage` và **mất `diffPreview`** — đúng chỗ chứa lời khuyên hành
+ * động. Ví dụ `mechanism_mismatch` mang câu "Nhiều khả năng Restrict Editing đã
+ * bị gỡ. Hãy tải lại template gốc", mà người dùng lại chỉ thấy tên vị trí.
+ */
+export type FieldStructureIssueType =
+  | "missing_field"
+  | "unexpected_new_field"
+  | "locked_region_modified"
+  | "mechanism_mismatch"
+  | "protection_removed"
+  | "count_mismatch"
+  | "region_kind_changed";
+
 export interface FieldStructureIssue {
-  type: "missing_field" | "locked_region_modified" | "unexpected_new_field";
+  type: FieldStructureIssueType | string;
   fieldId?: string;
   location?: string;
   diffPreview?: string;
@@ -188,22 +206,25 @@ export async function validateReuploadFromBuffers(args: {
   };
 }
 
+/** Nhãn tiếng Việt cho từng loại. Khoá phải khớp `structural_binding.py`. */
+const ISSUE_LABEL: Record<string, string> = {
+  missing_field: "Thiếu vùng",
+  unexpected_new_field: "Vùng lạ không có trong bản gốc",
+  locked_region_modified: "Vùng khoá bị sửa",
+  mechanism_mismatch: "Cơ chế khoá tài liệu đã đổi",
+  protection_removed: "Bảo vệ tài liệu đã bị gỡ",
+  count_mismatch: "Số vùng mở không khớp",
+  region_kind_changed: "Loại vùng mở đã đổi",
+};
+
 export function formatIssueMessage(issue: FieldStructureIssue): string {
   const loc = issue.location || issue.fieldId || "(không rõ vị trí)";
-  switch (issue.type) {
-    case "missing_field":
-      return `Thiếu field/vùng: ${loc}${
-        issue.fieldId ? ` (id: ${issue.fieldId})` : ""
-      }`;
-    case "locked_region_modified":
-      return `Vùng khóa bị sửa: ${loc}${
-        issue.diffPreview ? ` — ${issue.diffPreview}` : ""
-      }`;
-    case "unexpected_new_field":
-      return `Field/vùng lạ không có trong template: ${loc}${
-        issue.fieldId ? ` (id: ${issue.fieldId})` : ""
-      }`;
-    default:
-      return loc;
-  }
+  const label = ISSUE_LABEL[issue.type] || "Không khớp cấu trúc";
+  const id =
+    issue.fieldId && !loc.includes(issue.fieldId) ? ` (id: ${issue.fieldId})` : "";
+  // `diffPreview` LUÔN được nối vào — với `mechanism_mismatch` và
+  // `protection_removed` thì đó là phần duy nhất nói cho người dùng biết phải
+  // làm gì. Bản trước bỏ nó ở nhánh default.
+  const detail = issue.diffPreview ? ` — ${issue.diffPreview}` : "";
+  return `${label}: ${loc}${id}${detail}`;
 }

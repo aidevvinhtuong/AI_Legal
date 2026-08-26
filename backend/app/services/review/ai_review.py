@@ -37,6 +37,7 @@ from app.services.config import checklist
 from app.services.document.model import ParagraphDescriptor
 from app.services.document.ooxml import DocxPackage
 from app.services.document.ooxml_reader import OoxmlReader
+from app.services.review import versions
 from app.services.storage.objects import get_storage
 
 log = logging.getLogger("ailegal.ai.review")
@@ -117,15 +118,8 @@ def _clients(merged: checklist.MergedChecklist):
 
 
 def _current_version(db: Session, review: ContractReview) -> ReviewVersion:
-    version = db.execute(
-        select(ReviewVersion)
-        .where(ReviewVersion.review_id == review.id)
-        .order_by(ReviewVersion.version.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    if version is None:
-        raise RuntimeError("ticket chưa có version nào")
-    return version
+    """Version MANG TỆP đang có hiệu lực — xem `versions.current_document`."""
+    return versions.current_document(db, review)
 
 
 def _load_segments(

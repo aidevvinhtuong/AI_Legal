@@ -199,6 +199,14 @@ class ChatMessage(UuidPkMixin, Base):
     )
     role: Mapped[str] = mapped_column(String(16), nullable=False)  # user | assistant
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # `text` = lượt hội thoại thật · `refusal` = câu hệ thống tự sinh khi chặn
+    # trước lúc gọi LLM.
+    #
+    # Phải phân biệt vì câu từ chối KHÔNG được đưa vào ngữ cảnh của model: nó
+    # thấy vài lượt "không xác định được vùng nào" liền phía trên rồi nhại lại
+    # y hệt thay vì làm việc. Đo được trên máy dev — người dùng gõ câu hợp lệ mà
+    # vẫn nhận câu từ chối cũ, kèm 3,9 giây gọi LLM vô ích.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, server_default="text")
     author_id: Mapped[uuid.UUID | None] = mapped_column(
         PgUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )

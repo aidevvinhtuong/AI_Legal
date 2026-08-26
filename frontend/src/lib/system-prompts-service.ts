@@ -13,30 +13,51 @@ import {
 export type { PipelineStage };
 export { PIPELINE_STAGES, STAGE_PLACEHOLDERS };
 
+/** Đúng hình dạng `GET/PUT /api/v1/system-prompts` trả về. */
 export interface SystemPromptSnapshot {
   stage: PipelineStage;
-  currentFile: string;
+  /** Tên file đang được `current.json` trỏ tới, ví dụ `v2.md`. */
+  fileName: string;
   content: string;
+  /**
+   * BE chỉ trả trường này ở GET; PUT trả bản rút gọn. Service điền bù từ
+   * `STAGE_PLACEHOLDERS` để UI không phải kiểm tra undefined ở mọi chỗ dùng —
+   * hai danh sách vốn phải khớp nhau, CI `validate-prompts` canh việc đó.
+   */
   placeholders: readonly string[];
-  versions: string[];
+  updatedAt?: string | null;
+  /** Stage đọc lỗi (thiếu `current.json`…) — BE báo thay vì im lặng. */
+  error?: string;
 }
 
 const MOCK_PROMPTS: SystemPromptSnapshot[] = PIPELINE_STAGES.map((stage) => ({
   stage,
-  currentFile: "v1.md",
+  fileName: "v1.md",
   content: `{{/* Mock system prompt — ${stage} */}}\n\nChỉnh sửa prompts thật khi chạy backend (GET/PUT /api/system-prompts).\n`,
   placeholders: STAGE_PLACEHOLDERS[stage],
-  versions: ["v1.md"],
 }));
+
+function withPlaceholders(
+  raw: Omit<SystemPromptSnapshot, "placeholders"> & {
+    placeholders?: readonly string[];
+  }
+): SystemPromptSnapshot {
+  return {
+    ...raw,
+    placeholders: raw.placeholders ?? STAGE_PLACEHOLDERS[raw.stage] ?? [],
+  };
+}
 
 export async function fetchSystemPrompts(): Promise<SystemPromptSnapshot[]> {
   if (USE_MOCK) {
     return MOCK_PROMPTS.map((p) => ({ ...p, content: p.content }));
   }
   const data = (await api.get("/api/v1/system-prompts")) as {
-    prompts: SystemPromptSnapshot[];
+    prompts: (Omit<SystemPromptSnapshot, "placeholders"> & {
+      placeholders?: readonly string[];
+    })[];
   };
-  return data.prompts || [];
+  return (data.prompts || []).map(withPlaceholders);
 }
 
 export async function updateSystemPrompt(
@@ -50,7 +71,9 @@ export async function updateSystemPrompt(
     return { ...found };
   }
   const data = (await api.put("/api/v1/system-prompts", { stage, content })) as {
-    prompt: SystemPromptSnapshot;
+    prompt: Omit<SystemPromptSnapshot, "placeholders"> & {
+      placeholders?: readonly string[];
+    };
   };
-  return data.prompt;
+  return withPlaceholders(data.prompt);
 }

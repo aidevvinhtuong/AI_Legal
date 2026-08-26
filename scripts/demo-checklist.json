@@ -1,0 +1,179 @@
+{
+  "_canh_bao": "DỮ LIỆU MẪU — KHÔNG PHẢI CHUẨN PHÁP LÝ. Do dev soạn để chạy thử luồng, chưa qua Legal. Phải thay bằng bản thật trước khi dùng cho bất kỳ quyết định nào.",
+  "_nguon": "Soạn theo cấu trúc Template_HDDV_chung_2026.docx để mỗi điều khoản rơi vào một nhóm phát hiện khác nhau.",
+  "parent": {
+    "categorySlug": "hqp",
+    "clauses": [
+      {
+        "code": "CL-001",
+        "name": "Thời hạn thanh toán",
+        "kind": "required",
+        "severity": "block",
+        "standardText": "Bên Sử Dụng thanh toán trong vòng 30 Ngày Làm Việc kể từ ngày nhận đủ hồ sơ thanh toán hợp lệ.",
+        "fallback": "Chấp nhận tối đa 45 Ngày Làm Việc nếu có lý do vận hành rõ ràng.",
+        "redLine": "Không chấp nhận thời hạn vượt quá 60 Ngày Làm Việc.",
+        "rationale": "Thời hạn dài làm đội chi phí vốn và khó đối chiếu công nợ.",
+        "keywords": [
+          "thanh toán",
+          "thời hạn",
+          "ngày làm việc",
+          "hoá đơn",
+          "hồ sơ thanh toán"
+        ],
+        "sortOrder": 0
+      },
+      {
+        "code": "CL-002",
+        "name": "Tỷ lệ đặt cọc",
+        "kind": "required",
+        "severity": "warn_high",
+        "standardText": "Đặt cọc không quá 30% Phí Dịch Vụ.",
+        "fallback": "Chấp nhận tối đa 50% nếu Bên Cung Ứng có bảo lãnh tạm ứng.",
+        "redLine": "Không chấp nhận đặt cọc trên 70% Phí Dịch Vụ.",
+        "rationale": "Đặt cọc cao đẩy rủi ro sang Công ty khi Bên Cung Ứng không thực hiện.",
+        "keywords": [
+          "đặt cọc",
+          "tạm ứng",
+          "phí dịch vụ",
+          "đợt"
+        ],
+        "sortOrder": 1
+      },
+      {
+        "code": "CL-003",
+        "name": "Bảo đảm chất lượng và tiến độ Dịch Vụ",
+        "kind": "required",
+        "severity": "warn_high",
+        "standardText": "Bên Cung Ứng bảo đảm Dịch Vụ đạt tiêu chuẩn thoả thuận và đúng tiến độ; chịu trách nhiệm khắc phục bằng chi phí của mình.",
+        "fallback": "Chấp nhận cam kết khắc phục trong thời hạn hợp lý do Các Bên thống nhất.",
+        "redLine": "Không chấp nhận điều khoản miễn trừ hoàn toàn trách nhiệm của Bên Cung Ứng.",
+        "rationale": "Không có cam kết chất lượng thì Công ty không có căn cứ yêu cầu khắc phục.",
+        "keywords": [
+          "bảo đảm",
+          "chất lượng",
+          "tiến độ",
+          "khắc phục"
+        ],
+        "sortOrder": 2
+      },
+      {
+        "code": "CL-004",
+        "name": "Bảo mật thông tin",
+        "kind": "required",
+        "severity": "block",
+        "standardText": "Các Bên giữ bí mật thông tin nhận được và chỉ dùng cho mục đích thực hiện Hợp Đồng.",
+        "fallback": "Chấp nhận nghĩa vụ bảo mật có thời hạn tối thiểu 3 năm sau khi chấm dứt.",
+        "redLine": "Không chấp nhận hợp đồng không có nghĩa vụ bảo mật.",
+        "rationale": "Thông tin kỹ thuật và giá của Công ty lộ ra là thiệt hại không thu hồi được.",
+        "keywords": [
+          "bảo mật",
+          "thông tin mật",
+          "tiết lộ"
+        ],
+        "sortOrder": 3
+      },
+      {
+        "code": "CL-005",
+        "name": "Giải quyết tranh chấp tại trọng tài nước ngoài",
+        "kind": "forbidden",
+        "severity": "block",
+        "standardText": "Tranh chấp giải quyết tại Toà án hoặc trọng tài Việt Nam, theo pháp luật Việt Nam.",
+        "redLine": "Không chấp nhận trọng tài nước ngoài (SIAC, ICC, HKIAC…) hoặc luật áp dụng nước ngoài.",
+        "rationale": "Chi phí theo đuổi tranh chấp ở nước ngoài vượt xa giá trị hầu hết hợp đồng dịch vụ.",
+        "keywords": [
+          "trọng tài",
+          "SIAC",
+          "ICC",
+          "HKIAC",
+          "nước ngoài",
+          "luật áp dụng"
+        ],
+        "sortOrder": 4
+      },
+      {
+        "code": "CL-006",
+        "name": "Bảo hiểm trách nhiệm của Bên Cung Ứng",
+        "kind": "required",
+        "severity": "warn_low",
+        "standardText": "Bên Cung Ứng duy trì bảo hiểm trách nhiệm nghề nghiệp trong suốt thời hạn thực hiện Dịch Vụ.",
+        "fallback": "Chấp nhận cam kết tự chịu trách nhiệm nếu giá trị Hợp Đồng dưới mức trọng yếu.",
+        "rationale": "Không có bảo hiểm thì mọi thiệt hại phụ thuộc hoàn toàn vào năng lực tài chính của Bên Cung Ứng.",
+        "keywords": [
+          "bảo hiểm",
+          "trách nhiệm nghề nghiệp"
+        ],
+        "sortOrder": 5
+      },
+      {
+        "code": "CL-007",
+        "name": "Luật áp dụng và cơ quan giải quyết tranh chấp",
+        "kind": "required",
+        "severity": "warn_high",
+        "standardText": "Hợp Đồng được điều chỉnh bởi pháp luật Việt Nam; tranh chấp giải quyết tại trọng tài hoặc toà án Việt Nam, địa điểm tại Việt Nam.",
+        "fallback": "Chấp nhận cơ quan tài phán Việt Nam khác nếu địa điểm vẫn ở Việt Nam.",
+        "redLine": "Không chấp nhận luật nước ngoài hoặc địa điểm giải quyết tranh chấp ngoài Việt Nam.",
+        "rationale": "Xác định rõ luật và nơi giải quyết giúp Công ty lường trước chi phí và khả năng thi hành phán quyết.",
+        "keywords": [
+          "pháp luật Việt Nam",
+          "tranh chấp",
+          "trọng tài",
+          "toà án",
+          "VIAC"
+        ],
+        "sortOrder": 6
+      },
+      {
+        "code": "CL-008",
+        "name": "Hiệu lực sau chấm dứt của nghĩa vụ bảo mật và bồi thường",
+        "kind": "required",
+        "severity": "warn_low",
+        "standardText": "Nghĩa vụ bảo mật, phạt vi phạm và bồi thường thiệt hại vẫn có hiệu lực sau khi Hợp Đồng chấm dứt.",
+        "fallback": "Chấp nhận nếu ít nhất nghĩa vụ bảo mật còn hiệu lực sau chấm dứt.",
+        "rationale": "Không có điều khoản tồn tại sau chấm dứt thì bên vi phạm chỉ cần chấm dứt hợp đồng là thoát trách nhiệm.",
+        "keywords": [
+          "chấm dứt",
+          "vẫn có giá trị hiệu lực",
+          "bảo mật",
+          "bồi thường"
+        ],
+        "sortOrder": 7
+      }
+    ]
+  },
+  "child": {
+    "contractNameSlug": "cn_hqp_hqp_dv",
+    "_ghi_chu": "Overlay của riêng Hợp đồng dịch vụ chung. Trùng mã CL-001 nên bản con THẮNG khi gộp — dùng để thấy cơ chế hai lớp hoạt động.",
+    "clauses": [
+      {
+        "code": "CL-001",
+        "name": "Thời hạn thanh toán (riêng cho hợp đồng dịch vụ)",
+        "kind": "required",
+        "severity": "block",
+        "standardText": "Bên Sử Dụng thanh toán trong vòng 15 Ngày Làm Việc kể từ ngày nghiệm thu Dịch Vụ.",
+        "fallback": "Chấp nhận tối đa 30 Ngày Làm Việc.",
+        "redLine": "Không chấp nhận thời hạn vượt quá 45 Ngày Làm Việc.",
+        "rationale": "Hợp đồng dịch vụ có giá trị nhỏ và chu kỳ ngắn, thời hạn dài không có lý do.",
+        "keywords": [
+          "thanh toán",
+          "nghiệm thu",
+          "ngày làm việc"
+        ],
+        "sortOrder": 0
+      },
+      {
+        "code": "CL-101",
+        "name": "Quyền yêu cầu thay đổi phạm vi Dịch Vụ",
+        "kind": "recommended",
+        "severity": "warn_low",
+        "standardText": "Bên Sử Dụng có quyền yêu cầu bổ sung, thay đổi nội dung Dịch Vụ; ảnh hưởng chi phí và tiến độ do Các Bên thống nhất bằng văn bản.",
+        "rationale": "Phạm vi dịch vụ thường thay đổi trong quá trình triển khai.",
+        "keywords": [
+          "yêu cầu thay đổi",
+          "phạm vi",
+          "bổ sung"
+        ],
+        "sortOrder": 1
+      }
+    ]
+  }
+}

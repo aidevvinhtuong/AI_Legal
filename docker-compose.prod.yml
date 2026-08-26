@@ -182,6 +182,7 @@ services:
         NEXT_PUBLIC_USE_MOCK: "false"
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
         NEXT_PUBLIC_ECONTRACT_LIVE: ${NEXT_PUBLIC_ECONTRACT_LIVE:-false}
+        NEXT_PUBLIC_EDITOR: ${NEXT_PUBLIC_EDITOR:-docx-preview}
         GIT_SHA: ${GIT_SHA:-unknown}
         BUILD_TIME: ${BUILD_TIME:-unknown}
     image: ailegal-frontend:${IMAGE_TAG:-latest}

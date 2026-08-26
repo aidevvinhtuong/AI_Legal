@@ -13,8 +13,8 @@ class UserRole(str, Enum):
     PURCHASING_MANAGER = "purchasing_manager"
     LEGAL = "legal"
     IT = "it"
-    # `legal_lead` đã bị bỏ từ Blueprint v1.8. FE còn sót trong type — BE
-    # KHÔNG hỗ trợ, gửi lên sẽ bị từ chối ở tầng validate.
+    # `legal_lead` đã bị bỏ từ Blueprint v1.8 và đã dọn khỏi FE ở vòng C.
+    # Vẫn từ chối ở tầng validate phòng session cũ trong localStorage.
 
 
 class Permission(str, Enum):
@@ -120,6 +120,7 @@ class ReviewAction(str, Enum):
     FINISH_AI = "finish_ai"
     FAIL_AI = "fail_ai"
     RETRY_AI = "retry_ai"
+    REUPLOAD = "reupload"
     SUBMIT_APPROVAL = "submit_approval"
     MANAGER_APPROVE = "manager_approve"
     MANAGER_REJECT = "manager_reject"
@@ -144,6 +145,7 @@ class VersionAction(str, Enum):
     LEGAL_REJECT = "legal_reject"
     RESUBMIT = "resubmit"
     MARKER_INSERT = "marker_insert"
+    REUPLOAD = "reupload"
 
 
 class ProposalKind(str, Enum):

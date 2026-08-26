@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
 import { FormListsPanel } from "@/components/configurations/form-lists-panel";
 import { SigningRulesPanel } from "@/components/configurations/signing-rules-panel";
+import { TemplatesPanel } from "@/components/configurations/templates-panel";
 import { SystemPromptsPanel } from "@/components/configurations/system-prompts-panel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,16 +22,18 @@ import type { UserSession } from "@/lib/types";
 import {
   ArrowLeft,
   FileCode2,
+  FileCheck2,
   ListTree,
   Loader2,
   Users,
 } from "lucide-react";
 
-type ConfigTab = "form-lists" | "system-prompts" | "signing";
+type ConfigTab = "form-lists" | "system-prompts" | "signing" | "templates";
 
 function tabQuery(tab: ConfigTab): string {
   if (tab === "system-prompts") return "?tab=system-prompts";
   if (tab === "signing") return "?tab=signing";
+  if (tab === "templates") return "?tab=templates";
   return "";
 }
 
@@ -48,6 +51,7 @@ function ConfigurationsContent() {
   const initialTab: ConfigTab = useMemo(() => {
     if (tabParam === "system-prompts" && canPrompts) return "system-prompts";
     if (tabParam === "signing" && canSigning) return "signing";
+    if (tabParam === "templates" && canSigning) return "templates";
     if (canForms) return "form-lists";
     if (canSigning) return "signing";
     if (canPrompts) return "system-prompts";
@@ -105,6 +109,7 @@ function ConfigurationsContent() {
           if (next === "form-lists" && !canForms) return;
           if (next === "system-prompts" && !canPrompts) return;
           if (next === "signing" && !canSigning) return;
+          if (next === "templates" && !canSigning) return;
           setTab(next);
           router.replace(`/dashboard/configurations${tabQuery(next)}`);
         }}
@@ -115,6 +120,12 @@ function ConfigurationsContent() {
             <TabsTrigger value="form-lists" className="gap-1.5 px-4">
               <ListTree className="h-3.5 w-3.5" />
               Form lists
+            </TabsTrigger>
+          )}
+          {canSigning && (
+            <TabsTrigger value="templates" className="gap-1.5 px-4">
+              <FileCheck2 className="h-3.5 w-3.5" />
+              Template
             </TabsTrigger>
           )}
           {canSigning && (
@@ -134,6 +145,11 @@ function ConfigurationsContent() {
         {canForms && (
           <TabsContent value="form-lists" className="mt-0">
             <FormListsPanel />
+          </TabsContent>
+        )}
+        {canSigning && (
+          <TabsContent value="templates" className="mt-0">
+            <TemplatesPanel />
           </TabsContent>
         )}
         {canSigning && (

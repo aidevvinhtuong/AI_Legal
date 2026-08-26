@@ -8,9 +8,15 @@ Hai nhóm endpoint cho hai người dùng khác nhau:
     phải biến mất khỏi form nhưng vẫn còn cho hợp đồng cũ tham chiếu.
   - `/form-lists/*` — CRUD từng mục, cần quyền `form_lists`.
 
-Khác FE hiện tại: FE đang `PUT /api/form-lists` ghi đè **nguyên khối 6 danh
-mục**. Hai người sửa hai khối khác nhau cùng lúc là mất dữ liệu của nhau. Ở đây
-tách thành thao tác trên từng mục.
+`PUT /form-lists` ghi cả bảng một lượt vì màn Configurations của IT sửa trên một
+state duy nhất rồi bấm Lưu. Nó **không** phải đường ghi song song: bên trong nó
+diff với DB rồi gọi đúng các thao tác per-item ở dưới, kèm nguyên vẹn luật
+"đang có hợp đồng dùng thì chỉ được Lưu trữ, không được Xoá".
+
+Đánh đổi đã biết: hai người sửa hai khối khác nhau cùng lúc thì người lưu sau
+đè người lưu trước. Chấp nhận được vì đây là màn quản trị một người dùng của IT;
+khi cần chặt hơn thì FE chuyển sang gọi các endpoint per-item — chúng vẫn còn
+đây và vẫn là đường được khuyến nghị.
 """
 
 from __future__ import annotations
@@ -156,6 +162,122 @@ def _usage_count(db, item: CatalogItem) -> int:
     if key is None:
         return 0
     return db.query(ContractReview).filter(ContractReview.intake[key].astext == item.slug).count()
+
+
+# Khoá do `_item_out` sinh ra ở cấp cao nhất. Mọi khoá KHÁC trong payload là cờ
+# riêng của khối (`group`, `requireTemplateMatch`, `hasChecklist`…) và được gom
+# vào `attrs` — nhờ vậy thêm một cờ mới ở FE không phải sửa backend.
+_RESERVED_KEYS = {"id", "code", "label", "status", "documentCategoryId", "value"}
+
+
+def _slug_of(raw: dict[str, Any]) -> str:
+    """`discountOptions` định danh bằng `value`; năm khối còn lại bằng `id`."""
+    return str(raw.get("id") or raw.get("value") or "").strip()
+
+
+def _apply_kind(db, kind: str, items: list[dict[str, Any]]) -> None:
+    """
+    Đồng bộ một khối về đúng `items`.
+
+    Thứ tự trong mảng chính là `sort_order` — panel cho kéo thả nên vị trí phải
+    lưu được, không suy ra từ nhãn.
+    """
+    current = {i.slug: i for i in _query(db, kind, include_archived=True)}
+    seen: set[str] = set()
+
+    for index, raw in enumerate(items):
+        slug = _slug_of(raw)
+        if not slug:
+            raise ValidationError(f"Danh mục “{kind}”: có mục thiếu id")
+        label = str(raw.get("label") or "").strip()
+        if not label:
+            raise ValidationError(f"Danh mục “{kind}”: mục “{slug}” thiếu nhãn")
+        seen.add(slug)
+
+        # FE dùng bộ trạng thái riêng cho `contractTypes`
+        # (`draft`/`published`/`archived`); DB chỉ phân biệt còn dùng hay đã lưu
+        # trữ, nên quy về hai giá trị thay vì đẻ thêm một trục trạng thái nữa.
+        status = "archived" if raw.get("status") == "archived" else "active"
+        attrs = {k: v for k, v in raw.items() if k not in _RESERVED_KEYS}
+
+        item = current.get(slug)
+        if item is None:
+            if kind == "discountOptions":
+                raise ValidationError("Danh mục chiết khấu cố định yes/no — chỉ sửa được nhãn")
+            db.add(
+                CatalogItem(
+                    kind=kind,
+                    slug=slug,
+                    code=str(raw.get("code") or slug.upper()),
+                    label=label,
+                    status=status,
+                    parent_slug=raw.get("documentCategoryId"),
+                    attrs=attrs,
+                    sort_order=index,
+                )
+            )
+            continue
+
+        item.label = label
+        item.sort_order = index
+        if kind != "discountOptions":
+            item.code = str(raw.get("code") or item.code)
+            item.status = status
+            item.parent_slug = raw.get("documentCategoryId") or item.parent_slug
+            item.attrs = attrs
+
+    # Biến mất khỏi payload = người dùng bấm Xoá. Cùng một luật với DELETE
+    # per-item: đã có hợp đồng tham chiếu thì không xoá, vì mất dấu vết hợp đồng
+    # đó đã được tạo theo giá trị danh mục nào.
+    blocked: list[str] = []
+    for slug, item in current.items():
+        if slug in seen:
+            continue
+        if kind == "discountOptions":
+            raise ValidationError("Không xoá được mục của danh mục chiết khấu")
+        if _usage_count(db, item):
+            blocked.append(item.label)
+            continue
+        db.delete(item)
+    if blocked:
+        raise ConflictError(
+            "Đang có hợp đồng dùng các giá trị sau nên không xoá được, "
+            f"hãy Lưu trữ thay vì Xoá: {', '.join(blocked)}",
+            code="catalog_item_in_use",
+        )
+
+
+@router.put("/form-lists", dependencies=[Depends(require(Permission.FORM_LISTS))])
+def save_form_lists(
+    payload: dict[str, list[dict[str, Any]]],
+    principal: CurrentUser,
+    db: DbSession,
+) -> dict[str, list[dict[str, Any]]]:
+    """
+    Ghi cả sáu khối một lượt — đúng cách màn Configurations của IT hoạt động.
+
+    Khối nào không có trong payload thì **không đụng tới**, chứ không coi là
+    "xoá sạch khối đó": FE gửi thiếu một khoá vì lỗi hiển nhiên hơn nhiều so với
+    việc âm thầm xoá toàn bộ một danh mục.
+    """
+    del principal
+    unknown = sorted(set(payload) - set(CATALOG_KINDS))
+    if unknown:
+        raise ValidationError(f"Danh mục không tồn tại: {', '.join(unknown)}")
+
+    for kind in CATALOG_KINDS:
+        items = payload.get(kind)
+        if items is None:
+            continue
+        if not isinstance(items, list):
+            raise ValidationError(f"Danh mục “{kind}” phải là một mảng")
+        _apply_kind(db, kind, items)
+
+    db.flush()
+    return {
+        kind: [_item_out(i) for i in _query(db, kind, include_archived=True)]
+        for kind in CATALOG_KINDS
+    }
 
 
 @router.post("/form-lists/{kind}", dependencies=[Depends(require(Permission.FORM_LISTS))])

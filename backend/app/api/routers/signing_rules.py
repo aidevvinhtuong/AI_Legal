@@ -154,6 +154,17 @@ def preview(payload: PreviewIn, principal: CurrentUser, db: DbSession) -> dict[s
 
 def _validate(rules: list[RuleIn]) -> None:
     for index, rule in enumerate(rules, start=1):
+        # `userId` đi thẳng vào `uuid.UUID(...)` lúc ghi. Không kiểm ở đây thì
+        # một id rác (vd. id tạm do FE sinh) ném ValueError giữa transaction và
+        # người dùng nhận 500 thay vì một câu nói rõ dòng nào sai.
+        if rule.userId:
+            try:
+                uuid.UUID(rule.userId)
+            except ValueError:
+                raise ValidationError(
+                    f"Dòng {index}: Người ký chưa được chọn từ danh sách tài khoản",
+                    code="invalid_user_id",
+                ) from None
         if rule.maxValue is not None and rule.maxValue < rule.minValue:
             raise ValidationError(
                 f"Dòng {index}: Giá trị max nhỏ hơn min", code="invalid_value_band"

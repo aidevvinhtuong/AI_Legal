@@ -15,8 +15,10 @@ from app.infra.models.catalog import (
     ContractTemplate,
     DocumentSequence,
 )
+from app.infra.models.comment import CommentReply, CommentThread
 from app.infra.models.config import ChecklistConfig, SigningAuthorityRule
 from app.infra.models.econtract import EcontractEvent, EcontractOutbox
+from app.infra.models.legal_edit import LegalEdit
 from app.infra.models.review import (
     ChatMessage,
     ContractReview,
@@ -36,6 +38,8 @@ __all__ = [
     "CatalogItem",
     "ChatMessage",
     "ChecklistConfig",
+    "CommentReply",
+    "CommentThread",
     "ContractReview",
     "ContractTemplate",
     "DocumentField",
@@ -43,6 +47,7 @@ __all__ = [
     "EcontractEvent",
     "EcontractOutbox",
     "FeedbackItem",
+    "LegalEdit",
     "ReviewFile",
     "ReviewVersion",
     "SigningAuthorityRule",

@@ -17,6 +17,7 @@ import {
 import { StatusBadge } from "@/components/review/status-badge";
 import { ChatPanel } from "@/components/review/chat-panel";
 import { ContractInsightPopup } from "@/components/review/contract-insight-popup";
+import { OfflineEditDialog } from "@/components/review/offline-edit-dialog";
 import { ReviewedWordView } from "@/components/review/reviewed-word-view";
 import {
   IntakeFormFields,
@@ -62,6 +63,7 @@ import {
   CheckSquare,
   Download,
   FileText,
+  FileUp,
   History,
   Loader2,
   Save,
@@ -85,6 +87,7 @@ export default function ContractDetailPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [review, setReview] = useState<ContractReview | null>(null);
+  const [offlineOpen, setOfflineOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [savingIntake, setSavingIntake] = useState(false);
@@ -238,11 +241,15 @@ export default function ContractDetailPage() {
     }
     setSavingIntake(true);
     try {
-      const updated = await updateReviewIntake(review.id, {
-        intake,
-        contractTypeId: intakeForm.contractTypeId,
-        prompt: intakeForm.prompt,
-      });
+      const updated = await updateReviewIntake(
+        review.id,
+        {
+          intake,
+          contractTypeId: intakeForm.contractTypeId,
+          prompt: intakeForm.prompt,
+        },
+        review.rowVersion
+      );
       setReview(updated);
       setIntakeForm(intakeFromReview(updated));
       toast({ title: "Đã lưu thông tin hợp đồng" });
@@ -313,11 +320,15 @@ export default function ContractDetailPage() {
           contractNames
         );
         if (intake) {
-          await updateReviewIntake(review.id, {
-            intake,
-            contractTypeId: intakeForm.contractTypeId,
-            prompt: intakeForm.prompt,
-          });
+          await updateReviewIntake(
+            review.id,
+            {
+              intake,
+              contractTypeId: intakeForm.contractTypeId,
+              prompt: intakeForm.prompt,
+            },
+            review.rowVersion
+          );
         }
       }
       const updated = await submitDraftToQueue(review.id);
@@ -376,6 +387,16 @@ export default function ContractDetailPage() {
               <Download className="h-4 w-4 mr-2" />
               Tải file .docx
             </Button>
+            {canEdit && !isQueueing && (
+              <Button
+                variant="outline"
+                onClick={() => setOfflineOpen(true)}
+                title="Tải về, sửa bằng Word, upload lại (PT3)"
+              >
+                <FileUp className="h-4 w-4 mr-2" />
+                Sửa offline
+              </Button>
+            )}
             {canEdit && isDraft && (
               <Button
                 onClick={handleSubmitAi}
@@ -586,11 +607,7 @@ export default function ContractDetailPage() {
                           messages={review.messages}
                           disabled={!canEdit}
                           onSend={async (content) => {
-                            const { review: updated } = await sendChat(
-                              review.id,
-                              content
-                            );
-                            setReview(updated);
+                            setReview(await sendChat(review.id, content));
                           }}
                         />
                       </CardContent>
@@ -743,6 +760,18 @@ export default function ContractDetailPage() {
           }}
         />
       )}
+      <OfflineEditDialog
+        review={review}
+        open={offlineOpen}
+        onOpenChange={setOfflineOpen}
+        onDone={(updated) => {
+          setReview(updated);
+          toast({
+            title: "Đã nhận bản sửa offline",
+            description: `Vòng review mới — v${updated.version}, AI đang chạy lại.`,
+          });
+        }}
+      />
     </AppLayout>
   );
 }

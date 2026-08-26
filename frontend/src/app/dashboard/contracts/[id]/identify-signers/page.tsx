@@ -69,7 +69,9 @@ export default function IdentifySignersPage() {
     if (r.status === "pending_markers") {
       try {
         const { review: updated } = await applySigningMatrix(r.id);
-        r = updated;
+        // Giữ `r` cũ nếu vì lý do gì đó không có review trả về: gán undefined
+        // không ném lỗi, nên `catch` không đỡ được và trang sẽ vỡ ở dòng dưới.
+        if (updated) r = updated;
       } catch {
         /* đã có recipients hoặc ma trận lỗi — vẫn cho sửa tay */
       }

@@ -95,7 +95,7 @@ export function SystemPromptsPanel() {
       setDrafts((prev) => ({ ...prev, [saved.stage]: saved.content }));
       toast({
         title: "Đã lưu",
-        description: `Ghi ${saved.currentFile} · ${STAGE_LABELS[saved.stage]}`,
+        description: `Ghi ${saved.fileName} · ${STAGE_LABELS[saved.stage]}`,
       });
     } catch (e) {
       toast({
@@ -144,7 +144,7 @@ export function SystemPromptsPanel() {
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="font-medium">{STAGE_LABELS[stage]}</span>
                 <Badge variant="secondary" className="font-mono text-[10px]">
-                  {prompt.currentFile}
+                  {prompt.fileName}
                 </Badge>
                 {dirty && (
                   <Badge variant="outline" className="text-[10px] text-amber-700">

@@ -41,7 +41,7 @@ export default function LoginPage() {
   const redirectByRole = (user: UserSession) => {
     if (user.role === "it") {
       router.push("/dashboard/configurations");
-    } else if (user.role === "legal" || user.role === "legal_lead") {
+    } else if (user.role === "legal") {
       router.push("/dashboard/tasks");
     } else if (user.role === "purchasing_manager") {
       router.push("/dashboard/tasks");

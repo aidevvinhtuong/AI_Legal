@@ -22,11 +22,28 @@ export const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK !== "false";
 export const ECONTRACT_LIVE =
   process.env.NEXT_PUBLIC_ECONTRACT_LIVE === "true";
 
+/**
+ * Trình hiển thị `.docx`: `docx-preview` (mặc định) hoặc `superdoc`.
+ *
+ * Mặc định vẫn là `docx-preview` vì lớp diff của AI (`docx-inline-diff.ts`) gắn
+ * vào DOM do nó sinh ra. Đổi sang SuperDoc là mất lớp diff đó cho tới khi port
+ * xong — nên đây là cờ opt-in, không phải thay thế thẳng.
+ */
+export const DOCX_RENDERER =
+  process.env.NEXT_PUBLIC_EDITOR === "superdoc" ? "superdoc" : "docx-preview";
+
 interface FetchOptions extends Omit<RequestInit, "body" | "headers"> {
   data?: unknown;
   headers?: Record<string, string>;
   /** Không redirect /login khi 401 (vd. login endpoint). */
   skipAuthRedirect?: boolean;
+  /**
+   * `rowVersion` của bản ghi đang sửa → gửi thành header `If-Match`.
+   *
+   * Backend so với phiên bản hiện tại và trả 409 nếu người khác đã ghi trước.
+   * Không gửi thì backend bỏ qua kiểm tra — tức là hai tab ghi đè nhau im lặng.
+   */
+  ifMatch?: number;
 }
 
 export class ApiError extends Error {
@@ -53,6 +70,7 @@ export async function fetchApi(path: string, options: FetchOptions = {}) {
     data,
     headers: customHeaders = {},
     skipAuthRedirect,
+    ifMatch,
     ...restOptions
   } = options;
 
@@ -64,6 +82,7 @@ export async function fetchApi(path: string, options: FetchOptions = {}) {
   const isForm = typeof FormData !== "undefined" && data instanceof FormData;
   const headers: Record<string, string> = {
     ...(token && { Authorization: `Bearer ${token}` }),
+    ...(ifMatch !== undefined && { "If-Match": `"${ifMatch}"` }),
     ...customHeaders,
   };
 
@@ -162,6 +181,33 @@ export async function fetchBinary(path: string): Promise<ArrayBuffer> {
     throw new ApiError(response.status, `Không tải được file (${response.status})`);
   }
   return response.arrayBuffer();
+}
+
+/**
+ * Tải file về máy QUA endpoint kiểm quyền.
+ *
+ * `<a href="/api/v1/...">` trần không gửi được header `Authorization`, mà backend
+ * chỉ nhận Bearer token (không dùng cookie) — nên link kiểu đó luôn 401. Phải
+ * fetch kèm token rồi mới dựng blob URL để trình duyệt lưu.
+ */
+export async function downloadFile(
+  path: string,
+  fileName: string
+): Promise<void> {
+  const buffer = await fetchBinary(path);
+  const url = URL.createObjectURL(new Blob([buffer]));
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Thu hồi ngay sau khi click là an toàn: trình duyệt đã giữ tham chiếu blob
+    // cho lượt tải đang chạy. Không thu hồi thì blob nằm lại tới khi reload.
+    URL.revokeObjectURL(url);
+  }
 }
 
 export const api = {

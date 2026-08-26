@@ -136,6 +136,35 @@ class StructuralBindingError(AppError):
         )
 
 
+class ReuploadRejectedError(AppError):
+    """
+    Tệp upload lại (PT3) lệch cấu trúc. **Không có override** (C-4).
+
+    Tách khỏi `StructuralBindingError` vì ngữ cảnh khác: ở đây người dùng vừa sửa
+    một tệp họ đang có trong tay, nên câu hỏi của họ là "tôi đụng vào cái gì",
+    không phải "tệp có khớp template không". `layer` nói rõ đối chiếu với đâu —
+    tệp hiện tại của ticket, hay template Legal đăng ký.
+    """
+
+    def __init__(self, issues: list[dict[str, Any]], *, layer: str) -> None:
+        where = (
+            "bản đang có trong hệ thống"
+            if layer == "current_version"
+            else "template Legal đã đăng ký"
+        )
+        super().__init__(
+            code="reupload_rejected",
+            detail=(
+                f"Tệp upload lại không khớp {where}. Vùng khoá của hợp đồng "
+                "không được phép thay đổi — hãy tải lại bản mới nhất rồi chỉ sửa "
+                "những vùng được mở."
+            ),
+            status=422,
+            title="Tệp upload lại sai cấu trúc",
+            extra={"issues": issues, "layer": layer},
+        )
+
+
 class WriteRejectedError(AppError):
     """Một phần hoặc toàn bộ yêu cầu ghi bị allow-list Lớp 1 từ chối."""
 

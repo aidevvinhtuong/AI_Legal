@@ -10,17 +10,22 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession, require
-from app.api.presenters import user_out
+from app.api.presenters import user_directory_out, user_out
 from app.domain.enums import Permission, UserRole
 from app.domain.errors import ConflictError, NotFoundError, ValidationError
 from app.infra.models import ContractReview, User
 from app.services.identity.security import hash_password
 
-router = APIRouter(
-    prefix="/api/v1/users",
-    tags=["users"],
-    dependencies=[Depends(require(Permission.USERS))],
-)
+# Guard đặt ở TỪNG route, không ở router.
+#
+# Quản trị tài khoản là việc của IT (`users`), nhưng bảng Phân quyền ký của
+# Legal cần đọc được danh sách người để chọn người ký. Guard cấp router là AND
+# với guard cấp route, nên không nới lỏng riêng một route được — phải tách.
+router = APIRouter(prefix="/api/v1/users", tags=["users"])
+
+ADMIN = Depends(require(Permission.USERS))
+# `require` là OR: đủ MỘT trong hai quyền là qua.
+DIRECTORY = Depends(require(Permission.USERS, Permission.CONTRACT_CONFIG))
 
 VALID_PERMISSIONS = {p.value for p in Permission}
 VALID_ROLES = {r.value for r in UserRole}
@@ -43,7 +48,7 @@ class UserIn(BaseModel):
     @classmethod
     def _role_supported(cls, v: str) -> str:
         if v not in VALID_ROLES:
-            # `legal_lead` đã bị bỏ từ Blueprint v1.8 nhưng còn sót trong type FE
+            # `legal_lead` đã bỏ từ Blueprint v1.8; giữ chặn phòng session cũ
             raise ValueError(f"Vai trò “{v}” không được hỗ trợ ({', '.join(sorted(VALID_ROLES))})")
         return v
 
@@ -63,13 +68,26 @@ class UserIn(BaseModel):
         return v
 
 
-@router.get("")
+@router.get("/directory", dependencies=[DIRECTORY])
+def user_directory(db: DbSession) -> list[dict[str, Any]]:
+    """
+    Danh bạ để chọn người ký — chỉ tên, email, điện thoại, còn hoạt động không.
+
+    Khai TRƯỚC `/{user_id}` không cần thiết ở đây (route này là GET, các route
+    có `{user_id}` là PUT/DELETE), nhưng giữ thứ tự này để sau có thêm
+    `GET /{user_id}` thì `/directory` không bị nuốt làm tham số.
+    """
+    rows = db.execute(select(User).where(User.active.is_(True)).order_by(User.username)).scalars()
+    return [user_directory_out(u) for u in rows]
+
+
+@router.get("", dependencies=[ADMIN])
 def list_users(db: DbSession) -> list[dict[str, Any]]:
     rows = db.execute(select(User).order_by(User.username)).scalars()
     return [user_out(u) for u in rows]
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[ADMIN])
 def create_user(payload: UserIn, db: DbSession) -> dict[str, Any]:
     if not payload.password:
         raise ValidationError("Phải đặt mật khẩu khi tạo tài khoản mới")
@@ -92,7 +110,7 @@ def create_user(payload: UserIn, db: DbSession) -> dict[str, Any]:
     return user_out(user)
 
 
-@router.put("/{user_id}")
+@router.put("/{user_id}", dependencies=[ADMIN])
 def update_user(user_id: uuid.UUID, payload: UserIn, db: DbSession) -> dict[str, Any]:
     user = db.get(User, user_id)
     if user is None:
@@ -118,7 +136,7 @@ def update_user(user_id: uuid.UUID, payload: UserIn, db: DbSession) -> dict[str,
     return user_out(user)
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", dependencies=[ADMIN])
 def delete_user(user_id: uuid.UUID, principal: CurrentUser, db: DbSession) -> dict[str, Any]:
     """
     Chặn xoá khi tài khoản còn ràng buộc dữ liệu.

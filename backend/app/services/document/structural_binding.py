@@ -100,6 +100,23 @@ class FieldStructureIssue:
     field_id: str | None = None
     diff_preview: str | None = None
 
+    def as_payload(self) -> dict[str, str | None]:
+        """
+        Hình dạng gửi ra API — **camelCase**, khớp `FieldStructureIssue` của FE.
+
+        Không dùng `dataclasses.asdict()`: nó giữ nguyên tên thuộc tính Python nên
+        FE nhận `diff_preview` trong khi component đọc `diffPreview`, và hiện ra
+        một danh sách lỗi **trống chỗ quan trọng nhất** — người dùng thấy "sai
+        cấu trúc" mà không biết sai ở đâu. Đã từng như vậy trên cả đường tạo
+        ticket lẫn đường đăng ký template.
+        """
+        return {
+            "type": self.type,
+            "location": self.location,
+            "fieldId": self.field_id,
+            "diffPreview": self.diff_preview,
+        }
+
 
 def build_binding(
     inventory: FieldInventory,

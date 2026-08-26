@@ -4,7 +4,7 @@
  */
 
 import { api, USE_MOCK } from "@/lib/api";
-import type { AppUser } from "@/lib/types";
+import type { AppUser, UserDirectoryEntry } from "@/lib/types";
 import {
   createUser as createUserLocal,
   deleteUser as deleteUserLocal,
@@ -27,6 +27,30 @@ export {
 export async function fetchUsers(): Promise<AppUser[]> {
   if (USE_MOCK) return loadUsers();
   return api.get("/api/v1/users") as Promise<AppUser[]>;
+}
+
+/**
+ * Danh bạ để chọn người ký — chỉ tên/email/điện thoại.
+ *
+ * KHÔNG dùng `fetchUsers()` cho việc này: `/api/v1/users` là API quản trị của
+ * IT (quyền `users`), nên Legal gọi vào sẽ nhận 403 và cả bảng Phân quyền ký
+ * trắng trơn. `/directory` mở cho cả `contract_config` và chỉ trả đúng những
+ * trường một dropdown cần.
+ */
+export async function fetchUserDirectory(): Promise<UserDirectoryEntry[]> {
+  if (USE_MOCK) {
+    return loadUsers()
+      .filter((u) => u.active)
+      .map(({ id, username, fullName, email, phone, active }) => ({
+        id,
+        username,
+        fullName,
+        email,
+        phone,
+        active,
+      }));
+  }
+  return api.get("/api/v1/users/directory") as Promise<UserDirectoryEntry[]>;
 }
 
 export async function createUserRemote(input: UserInput): Promise<AppUser> {

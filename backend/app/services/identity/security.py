@@ -48,9 +48,20 @@ def create_access_token(
     username: str,
     role: str,
     permissions: list[str],
+    login_at: int | None = None,
 ) -> str:
+    """
+    Token truy cập, sống `ACCESS_TOKEN_MINUTES`.
+
+    `login_at` là thời điểm **đăng nhập gốc**, giữ nguyên qua mọi lần gia hạn.
+    Nó là thứ chặn phiên trượt vô hạn: người dùng đang làm việc thì token được
+    cấp lại liên tục, nhưng không bao giờ vượt quá `REFRESH_TOKEN_HOURS` kể từ
+    lần nhập mật khẩu. Bỏ claim này thì một máy trạm bỏ quên có thể giữ phiên
+    sống mãi — mà đây là hệ thống có dữ liệu hợp đồng.
+    """
     settings = get_settings()
     now = datetime.now(timezone.utc)
+    issued = int(now.timestamp())
     payload: dict[str, Any] = {
         "sub": str(user_id),
         "username": username,
@@ -58,11 +69,21 @@ def create_access_token(
         # Quyền nằm trong token cho tiện, NHƯNG mọi kiểm tra thật vẫn đọc lại từ
         # DB: IT thu quyền của ai đó thì phải có hiệu lực ngay, không đợi hết hạn.
         "perms": permissions,
-        "iat": int(now.timestamp()),
+        "iat": issued,
+        "lgn": login_at or issued,
         "exp": int((now + timedelta(minutes=settings.ACCESS_TOKEN_MINUTES)).timestamp()),
         "iss": "ai-legal",
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def session_deadline(claims: dict[str, Any]) -> datetime:
+    """Thời điểm phiên hết hạn TUYỆT ĐỐI, không gia hạn thêm được nữa."""
+    settings = get_settings()
+    login_at = int(claims.get("lgn") or claims.get("iat") or 0)
+    return datetime.fromtimestamp(login_at, timezone.utc) + timedelta(
+        hours=settings.REFRESH_TOKEN_HOURS
+    )
 
 
 def decode_access_token(token: str) -> dict[str, Any]:

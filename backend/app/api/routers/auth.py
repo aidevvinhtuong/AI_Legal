@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbSession
+from app.api.deps import AccessClaims, CurrentUser, DbSession
 from app.api.presenters import session_out, user_out
 from app.domain.enums import DEFAULT_PERMISSIONS, UserRole
 from app.domain.errors import ForbiddenError, UnauthorizedError, ValidationError
@@ -17,6 +18,7 @@ from app.services.identity.security import (
     create_access_token,
     hash_password,
     needs_rehash,
+    session_deadline,
     verify_password,
 )
 
@@ -77,7 +79,14 @@ def login(payload: LoginIn, db: DbSession) -> dict[str, Any]:
             entity_id=str(user.id),
         )
     )
-    return session_out(user, token, permissions)
+    # `sessionExpiresAt` = trần TUYỆT ĐỐI của phiên, không phải hạn của token.
+    # FE cần nó để biết khi nào gia hạn cũng vô ích mà báo trước cho người dùng,
+    # thay vì để họ đang gõ thì màn hình nhảy về /login.
+    return {
+        **session_out(user, token, permissions),
+        "sessionExpiresAt": session_deadline({"lgn": int(datetime.now(timezone.utc).timestamp())})
+        .isoformat(),
+    }
 
 
 @router.post("/change-password")
@@ -107,6 +116,55 @@ def change_password(payload: ChangePasswordIn, db: DbSession) -> dict[str, Any]:
         )
     )
     return {"ok": True}
+
+
+@router.post("/refresh")
+def refresh(claims: AccessClaims, principal: CurrentUser, db: DbSession) -> dict[str, Any]:
+    """
+    Gia hạn phiên — **phiên trượt, có trần tuyệt đối**.
+
+    Vì sao cần: token sống 30 phút tính từ lúc ĐĂNG NHẬP, không phải từ thao tác
+    cuối. Trước endpoint này, người dùng đang gõ dở cũng bị đá ra ở phút thứ 31,
+    và vì quy tắc A4c bắt **lưu thủ công** nên phần chưa lưu mất trắng. Đó mới là
+    cái giá thật, không phải sự phiền toái.
+
+    Vì sao vẫn có trần: `REFRESH_TOKEN_HOURS` kể từ lần nhập mật khẩu gốc (`lgn`,
+    giữ nguyên qua mọi lần gia hạn). Người đang làm việc không bao giờ bị ngắt;
+    một máy trạm bỏ quên thì vẫn hết phiên. Thiếu trần này thì "phiên trượt" biến
+    thành "phiên vĩnh viễn".
+
+    Không cần refresh token riêng: token hiện tại **còn hiệu lực** mới gọi được
+    endpoint này (dependency đã decode và kiểm `exp`). Hết hạn rồi thì đăng nhập
+    lại — đúng ý nghĩa của hết phiên.
+    """
+    deadline = session_deadline(claims)
+    now = datetime.now(timezone.utc)
+    if now >= deadline:
+        raise UnauthorizedError(
+            "Phiên đã đạt thời hạn tối đa, vui lòng đăng nhập lại"
+        )
+
+    user = db.get(User, principal.user_id)
+    if user is None:
+        raise UnauthorizedError()
+    if not user.active:
+        raise ForbiddenError("Tài khoản đã bị vô hiệu hoá")
+
+    permissions = _effective_permissions(user)
+    token = create_access_token(
+        user_id=user.id,
+        username=user.username,
+        role=user.role,
+        permissions=permissions,
+        # Giữ nguyên mốc đăng nhập gốc — đây là thứ làm trần có hiệu lực
+        login_at=int(claims.get("lgn") or claims.get("iat") or now.timestamp()),
+    )
+    # KHÔNG ghi audit mỗi lần gia hạn: cứ ~24 phút một dòng cho mỗi tab đang mở
+    # sẽ nhấn chìm những sự kiện thật sự đáng đọc trong `audit_log`.
+    return {
+        **session_out(user, token, permissions),
+        "sessionExpiresAt": deadline.isoformat(),
+    }
 
 
 @router.get("/me")
