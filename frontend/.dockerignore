@@ -13,3 +13,6 @@ coverage
 Dockerfile
 .dockerignore
 README.md
+
+# Lưu trữ mock cũ — tham chiếu, không thuộc đường build
+archive
