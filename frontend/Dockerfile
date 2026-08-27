@@ -39,8 +39,11 @@ ENV WATCHPACK_POLLING=false \
     CHOKIDAR_USEPOLLING=false
 
 EXPOSE 3001
+# Probe thẳng `/login` chứ không phải `/`: `/` luôn 307 sang `/login` khi chưa
+# có phiên, nên probe cũ tốn hai request và đổ một cặp `GET / 307` +
+# `GET /login 200` vào log mỗi 15 giây — đủ để lấp mất log thật.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=40s --retries=5 \
-    CMD wget -qO- http://localhost:3001/ >/dev/null 2>&1 || exit 1
+    CMD wget -qO- http://localhost:3001/login >/dev/null 2>&1 || exit 1
 
 # `next dev -p 3001` theo đúng script "dev" trong package.json
 CMD ["npm", "run", "dev"]
@@ -83,6 +86,6 @@ LABEL org.opencontainers.image.revision=${GIT_SHA} \
 ENV PORT=3000 HOSTNAME=0.0.0.0
 EXPOSE 3000
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-    CMD wget -qO- http://localhost:3000/ >/dev/null 2>&1 || exit 1
+    CMD wget -qO- http://localhost:3000/login >/dev/null 2>&1 || exit 1
 
 CMD ["node", "server.js"]

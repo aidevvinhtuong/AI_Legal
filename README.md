@@ -270,23 +270,27 @@ AI bỏ sót / sai · checklist & ma trận lỗi thời · bảo mật dữ li�
 
 ## Frontend (demo)
 
-Stack: **Next.js 14 (App Router) + TypeScript + Tailwind + shadcn/ui (Radix)** · mock BE (`localStorage`).
+Stack: **Next.js 14 (App Router) + TypeScript + Tailwind + shadcn/ui (Radix)**, gọi REST tới backend FastAPI.
 
 ### Chạy local
 
-```bash
-# Terminal 1 — Backend (eContract push, system-prompts, reupload)
-cd backend
-cp .env.example .env          # điền ECONTRACT_CLIENT_ID / SECRET
-npm install && npm run dev    # http://localhost:8000
+Đường chính là Docker Compose — backend cần Postgres, Redis, MinIO và Celery
+worker chạy cùng, dựng tay từng cái không đáng:
 
-# Terminal 2 — Frontend
-cd frontend
-cp .env.example .env.local
-npm install && npm run dev    # http://localhost:3001
+```bash
+cp .env.example .env   # điền ECONTRACT_CLIENT_ID / SECRET
+make up                # API :8010 · Frontend :3001
+make seed              # nạp tài khoản + master data
 ```
 
-Next rewrite `/api/*` → `API_REWRITE_URL` (mặc định `:8000`). Để `NEXT_PUBLIC_API_URL` **trống** trong `.env.local` để dùng rewrite.
+Next rewrite `/api/*` → `API_REWRITE_URL` (trong compose là `http://api:8000`).
+Để `NEXT_PUBLIC_API_URL` **trống** thì trình duyệt gọi same-origin qua rewrite.
+
+Chạy frontend ngoài container (backend vẫn trong compose):
+
+```bash
+cd frontend && npm install && npm run dev   # http://localhost:3001
+```
 
 Frontend **không còn chế độ mock**: mọi dữ liệu nghiệp vụ (hợp đồng, users, checklist,
 Form lists, quy tắc ký, System Prompt) đều đến từ backend. Phải có `backend/` chạy và

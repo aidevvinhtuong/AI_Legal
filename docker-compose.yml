@@ -113,6 +113,12 @@ services:
       - ./backend:/srv/backend
       - ./prompts:/prompts:ro          # prompt quản lý bằng Git, mount chỉ đọc
       - ./tests-corpus:/corpus:ro      # .docx thật cho test fidelity (gitignore)
+      # Corpus test nằm trong repo. `tests/conftest.py` giải đường dẫn theo
+      # REPO_ROOT = parents[2] của chính nó = /srv, nên hai thư mục này phải có
+      # mặt đúng tên ở /srv — thiếu thì `corpus_path()` gọi `pytest.skip`, và cả
+      # nhóm test structural binding lặng lẽ không chạy thay vì báo đỏ.
+      - ./template:/srv/template:ro
+      - ./docs:/srv/docs:ro
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
