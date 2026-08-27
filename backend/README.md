@@ -53,11 +53,20 @@ Tất cả nằm dưới `/api/v1`. Spec đầy đủ: `GET /openapi.json`, ho�
 ## Test
 
 ```bash
-make test        # toàn bộ (AI chạy nội tuyến, có gọi model thật — chậm)
+make test-be     # toàn bộ, trong container, tự tạm dừng beat/worker (khuyến nghị)
+make test        # toàn bộ, chạy trên .venv của máy
 make test-unit   # chỉ unit, không cần hạ tầng
 ```
 
-Hai điều dễ vấp:
+Ba điều dễ vấp:
+
+- **Test integration dùng chung DB dev với `beat` và `worker` đang chạy.** Cứ 5
+  phút `beat` bắn `ai.drain`, `econtract.drain`, `econtract.reconcile`, và
+  `worker` sửa ticket ngay dưới chân test. Chạy ngắn thì thường không sao; chạy
+  cả bộ (gần một tiếng) thì đủ cửa sổ để hỏng — đã gặp: 4 test đỏ trong lần chạy
+  đầy đủ nhưng xanh ở mọi tổ hợp module ngắn hơn. `make test-be` tạm dừng hai
+  service đó rồi bật lại. Đây là cách vá triệu chứng: cách chữa gốc là cho test
+  integration một database riêng.
 
 - **`AI_RUN_INLINE=true` là bắt buộc** cho test integration. Thiếu nó, ticket
   tạo từ template nằm lại ở `processing` (không có worker trong test), và mọi

@@ -368,12 +368,15 @@ def test_khoa_checklist_lay_tu_ten_hop_dong_khong_phai_loai_gia_tri(client: Test
     )
 
 
-def test_ten_nghiep_vu_song_sot_qua_cac_lan_ghi(client: TestClient, owner: str, legal: str):
+def test_ten_nghiep_vu_song_sot_qua_cac_lan_ghi(
+    client: TestClient, owner: str, legal: str, registered: dict
+):
     """
     Nhãn vùng chỉ được đặt lúc đăng ký template. Nếu không kế thừa sang version
     sau thì ghi trường MỘT lần là mọi vùng quay về "Vùng mở #7": UI mất tên, và
     chat mất luôn khả năng nhận ra người dùng đang nói tới vùng nào.
     """
+    del registered  # chỉ cần fixture chạy để có template hiệu lực
     rows = client.get(f"/api/v1/templates?contract_name_id={SLUG}", headers=_h(legal)).json()
     active = next(x for x in rows if x["isActive"])
     perm_id = active["regions"][0]["permId"]
@@ -403,12 +406,15 @@ def test_ten_nghiep_vu_song_sot_qua_cac_lan_ghi(client: TestClient, owner: str, 
     )
 
 
-def test_dang_ky_lai_thi_ke_thua_ten_nghiep_vu(client: TestClient, legal: str):
+def test_dang_ky_lai_thi_ke_thua_ten_nghiep_vu(
+    client: TestClient, legal: str, registered: dict
+):
     """
     Legal sửa template rồi tải lên lại là chuyện thường. Không kế thừa nhãn thì
     mỗi lần như vậy là mất sạch tên nghiệp vụ đã đặt, và mọi vùng quay về
     "Vùng mở #7" — gặp thật khi người dùng test trên UI.
     """
+    del registered  # chỉ cần fixture chạy để có template hiệu lực
     rows = client.get(f"/api/v1/templates?contract_name_id={SLUG}", headers=_h(legal)).json()
     active = next(x for x in rows if x["isActive"])
     perm_id = active["regions"][0]["permId"]

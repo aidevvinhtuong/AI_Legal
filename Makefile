@@ -142,6 +142,15 @@ test-editor-parity: ## Text SuperDoc phải khớp text backend (chạy lại kh
 test-fe: ## Test frontend (vitest + jsdom) — chạy trong container
 	docker compose exec -T frontend npx vitest run
 
+.PHONY: test-be
+test-be: ## Test backend trong container, có tạm dừng beat/worker để test không bị nhiễu
+	@echo "Tạm dừng beat + worker (chúng ghi vào cùng DB dev mà test đang dùng)…"
+	@docker compose stop beat worker >/dev/null 2>&1 || true
+	-@docker compose exec -T -e AI_RUN_INLINE=true api \
+	   python -m pytest tests/ -q --no-header -m "not models"
+	@echo "Bật lại beat + worker…"
+	@docker compose start beat worker >/dev/null 2>&1 || true
+
 .PHONY: typecheck-fe
 typecheck-fe: ## Typecheck frontend — chạy trong container
 	docker compose exec -T frontend npx tsc --noEmit
