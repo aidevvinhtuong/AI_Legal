@@ -9,6 +9,8 @@ VENV      := .venv
 PY        := $(VENV)/bin/python
 PIP       := $(VENV)/bin/pip
 PYTEST    := $(VENV)/bin/pytest
+# Database riêng cho test integration — xem tests/conftest.py::pytest_collection_modifyitems
+TEST_DB_URL := postgresql+psycopg://ailegal:ailegal@postgres:5432/ailegal_test
 RUFF      := $(VENV)/bin/ruff
 COMPOSE   := docker compose
 BACKEND   := backend
@@ -143,13 +145,22 @@ test-fe: ## Test frontend (vitest + jsdom) — chạy trong container
 	docker compose exec -T frontend npx vitest run
 
 .PHONY: test-be
-test-be: ## Test backend trong container, có tạm dừng beat/worker để test không bị nhiễu
-	@echo "Tạm dừng beat + worker (chúng ghi vào cùng DB dev mà test đang dùng)…"
-	@docker compose stop beat worker >/dev/null 2>&1 || true
-	-@docker compose exec -T -e AI_RUN_INLINE=true api \
+test-be: ## Test backend trên database RIÊNG (ailegal_test) — không đụng dữ liệu dev
+	@echo "→ Dựng database ailegal_test (nếu chưa có)…"
+	@docker compose exec -T postgres psql -U ailegal -d postgres -tAc \
+	   "SELECT 1 FROM pg_database WHERE datname='ailegal_test'" | grep -q 1 \
+	   || docker compose exec -T postgres createdb -U ailegal ailegal_test
+	@echo "→ Migrate + seed database test…"
+	@docker compose exec -T -e DATABASE_URL=$(TEST_DB_URL) api alembic upgrade head >/dev/null
+	@docker compose exec -T -e DATABASE_URL=$(TEST_DB_URL) api python -m app.seed >/dev/null
+	@echo "→ Chạy pytest…"
+	@docker compose exec -T -e DATABASE_URL=$(TEST_DB_URL) -e AI_RUN_INLINE=true api \
 	   python -m pytest tests/ -q --no-header -m "not models"
-	@echo "Bật lại beat + worker…"
-	@docker compose start beat worker >/dev/null 2>&1 || true
+
+.PHONY: test-be-reset
+test-be-reset: ## Xoá sạch database test rồi dựng lại từ đầu
+	@docker compose exec -T postgres dropdb -U ailegal --if-exists ailegal_test
+	@$(MAKE) test-be
 
 .PHONY: typecheck-fe
 typecheck-fe: ## Typecheck frontend — chạy trong container

@@ -5,6 +5,7 @@ không copy, không commit nội dung hợp đồng vào Git.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -13,6 +14,39 @@ import pytest
 from app.services.document.ooxml import DocxPackage
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def pytest_collection_modifyitems(config, items):
+    """
+    Chặn test integration ghi vào database dev.
+
+    Bộ integration tạo ticket thật và **không dọn gì** sau khi chạy. Trỏ vào DB
+    dev thì mỗi lần chạy để lại vài chục bản ghi: đã tích tới 755 ticket rác
+    trên màn "Tất cả hợp đồng", lẫn với việc thật của người dùng. Nó cũng là
+    nguồn của một lớp lỗi chập chờn — `beat`/`worker` sửa ticket ngay dưới chân
+    test đang chạy trên cùng DB.
+
+    Quy ước: tên database phải kết thúc bằng `_test`. Muốn cố tình chạy trên DB
+    dev thì đặt `ALLOW_DEV_DB=1` — tường minh, để không ai làm nhầm.
+    """
+    del config
+    if os.environ.get("ALLOW_DEV_DB") == "1":
+        return
+    if not any(item.get_closest_marker("integration") for item in items):
+        return
+
+    from app.infra.settings import get_settings
+
+    db_name = get_settings().DATABASE_URL.rsplit("/", 1)[-1].split("?")[0]
+    if db_name.endswith("_test"):
+        return
+
+    raise pytest.UsageError(
+        f"Test integration đang trỏ vào database “{db_name}”, không phải database test.\n"
+        f"Bộ này tạo ticket thật và không dọn — chạy trên DB dev sẽ để lại rác.\n\n"
+        f"  make test-be         # tự dựng và dùng database ailegal_test\n"
+        f"  ALLOW_DEV_DB=1 …     # nếu THẬT SỰ muốn chạy trên DB dev"
+    )
 
 # Tên → đường dẫn. Thiếu file nào thì test dùng nó tự skip, không làm đỏ cả bộ.
 CORPUS: dict[str, Path] = {
