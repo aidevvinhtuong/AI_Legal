@@ -16,9 +16,9 @@
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_CONFIG_PERMISSIONS } from "@/lib/config-types";
-import { getConfigPermission } from "@/lib/config-service";
-import type { UserRole } from "@/lib/types";
+import { DEFAULT_CONFIG_PERMISSIONS } from "@/lib/domain/config-types";
+import { getConfigPermission } from "@/lib/services/config";
+import type { UserRole } from "@/lib/domain/types";
 
 function login(role: UserRole, permissions: string[] = []) {
   localStorage.setItem(

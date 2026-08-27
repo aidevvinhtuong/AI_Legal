@@ -1,11 +1,11 @@
 import { api, ApiError, fetchBinary } from "@/lib/api";
-import { assertSigningMatrixReady } from "@/lib/config-service";
-import { clearSession, setSession } from "@/lib/session";
+import { assertSigningMatrixReady } from "@/lib/services/config";
+import { clearSession, setSession } from "@/lib/auth/session";
 import type {
   CodeLabelOption,
   ContractNameOption,
   DiscountOption,
-} from "@/lib/form-lists-store";
+} from "@/lib/domain/form-lists";
 import type {
   ContractReview,
   ContractTypeConfig,
@@ -26,14 +26,14 @@ import type {
   StructuredFeedbackItem,
   TemplateLintResult,
   UserSession,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 
 import {
   ReuploadValidationError,
   formatIssueMessage,
   type FieldStructureIssue,
   type ReuploadValidationResult,
-} from "@/lib/reupload-validation";
+} from "@/lib/docx/reupload-validation";
 
 /**
  * Tái xuất cho tương thích ngược — nguồn thật là `@/lib/session`.
@@ -41,7 +41,7 @@ import {
  * Nơi gọi mới nên import thẳng từ `@/lib/session`; giữ ở đây để việc tách
  * module không kéo theo một lượt sửa 14 file không liên quan.
  */
-export { clearSession, getSession, setSession } from "@/lib/session";
+export { clearSession, getSession, setSession } from "@/lib/auth/session";
 
 export async function loginWithCredentials(
   username: string,
@@ -339,7 +339,7 @@ import {
   recipientNeedsMarker,
   validateIdentifySigners,
   validateMarkers,
-} from "@/lib/econtract-flow";
+} from "@/lib/domain/econtract-flow";
 
 export {
   buildMarkerSyntax,
@@ -348,7 +348,7 @@ export {
   recipientNeedsMarker,
   validateIdentifySigners,
   validateMarkers,
-} from "@/lib/econtract-flow";
+} from "@/lib/domain/econtract-flow";
 
 /** Cập nhật thông tin người ký (email, orgName, hình thức ký...) trước khi đẩy eContract. */
 export async function updateRecipient(

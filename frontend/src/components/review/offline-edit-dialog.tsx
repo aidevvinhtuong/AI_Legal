@@ -44,8 +44,8 @@ import {
   formatIssueMessage,
   reuploadSubmit,
   type FieldStructureIssue,
-} from "@/lib/review-service";
-import type { ContractReview } from "@/lib/types";
+} from "@/lib/services/reviews";
+import type { ContractReview } from "@/lib/domain/types";
 
 export function OfflineEditDialog({
   review,

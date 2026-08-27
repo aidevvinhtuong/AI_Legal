@@ -3,8 +3,8 @@
  */
 
 import { api } from "@/lib/api";
-import type { AppUser, UserDirectoryEntry } from "@/lib/types";
-import type { UserInput } from "@/lib/user-store";
+import type { AppUser, UserDirectoryEntry } from "@/lib/domain/types";
+import type { UserInput } from "@/lib/domain/users";
 
 export type { UserInput };
 export {
@@ -13,7 +13,7 @@ export {
   emptyUserInput,
   roleLabel,
   displayFullName,
-} from "@/lib/user-store";
+} from "@/lib/domain/users";
 
 export async function fetchUsers(): Promise<AppUser[]> {
   return api.get("/api/v1/users") as Promise<AppUser[]>;

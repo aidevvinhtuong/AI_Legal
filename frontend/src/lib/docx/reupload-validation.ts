@@ -7,7 +7,7 @@ import {
   analyzeDocxContentControls,
   type DocxContentControl,
   type DocxFieldInventory,
-} from "@/lib/docx-content-controls";
+} from "@/lib/docx/content-controls";
 
 /**
  * Một điểm không khớp cấu trúc, do backend phát ra.

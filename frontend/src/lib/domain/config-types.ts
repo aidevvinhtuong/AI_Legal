@@ -1,4 +1,4 @@
-import type { ContractGroup, EcontractSignType } from "@/lib/types";
+import type { ContractGroup, EcontractSignType } from "@/lib/domain/types";
 
 /** Vòng đời cấu hình (checklist / Approval Matrix) — dùng ở màn chi tiết. */
 export type ConfigLifecycle = "draft" | "published" | "archived";

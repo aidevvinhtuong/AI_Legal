@@ -5,7 +5,7 @@ on:
     paths:
       - "prompts/**"
       - "scripts/validate-prompts.js"
-      - "frontend/src/lib/system-prompts/**"
+      - "frontend/src/lib/domain/system-prompts/**"
   push:
     paths:
       - "prompts/**"

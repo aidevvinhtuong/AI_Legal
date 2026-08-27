@@ -3,7 +3,7 @@
  * Role chỉ là gợi ý mặc định; quyền thực tế = permissions[] trên user.
  */
 
-import type { PermissionKey, UserRole } from "@/lib/types";
+import type { PermissionKey, UserRole } from "@/lib/domain/types";
 
 export type { PermissionKey };
 

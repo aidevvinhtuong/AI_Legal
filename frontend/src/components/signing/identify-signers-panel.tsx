@@ -16,13 +16,13 @@ import {
   normalizeUiRole,
   type CounterpartyKind,
   type SigningPartyBucket,
-} from "@/lib/econtract-flow";
+} from "@/lib/domain/econtract-flow";
 import type {
   EcontractNotifyType,
   EcontractSignType,
   EcontractUiRole,
   SignRecipient,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import { ChevronDown, Plus, Trash2, X } from "lucide-react";
 
 const SIGN_TYPE_OPTIONS: { value: EcontractSignType; label: string }[] = [

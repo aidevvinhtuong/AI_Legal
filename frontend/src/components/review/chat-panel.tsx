@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, Loader2, Send, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
 export function ChatPanel({

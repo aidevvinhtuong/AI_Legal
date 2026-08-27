@@ -127,7 +127,7 @@ Embedding và rerank là **TEI native API** (`/embed`, `/rerank`), không phải
 |---|---|
 | Python | 3.12, type hint đầy đủ, `from __future__ import annotations` |
 | Format / lint | `ruff` (line length 100) |
-| Đặt tên DB | `snake_case`; API serialize sang `camelCase` để khớp `frontend/src/lib/types.ts` |
+| Đặt tên DB | `snake_case`; API serialize sang `camelCase` để khớp `frontend/src/lib/domain/types.ts` |
 | Tiền tệ | `numeric(18,2)` — **không dùng float** |
 | Thời gian | `timestamptz`, luôn UTC |
 | Exception | Ném `AppError` của `domain/errors.py`; tầng API đổi sang RFC 9457 |

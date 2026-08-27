@@ -13,13 +13,13 @@ import type {
   CodeLabelOption,
   ContractNameOption,
   DiscountOption,
-} from "@/lib/form-lists-store";
+} from "@/lib/domain/form-lists";
 import type {
   ContractTypeConfig,
   DiscountFlag,
   DocumentCategory,
   DocumentIntakeMeta,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import { AlertTriangle, Calendar } from "lucide-react";
 
 function RequiredMark() {

@@ -9,7 +9,7 @@ import {
   applyDocxInlineDiffs,
   scrollToDocxDiff,
   type InlineDiffProposal,
-} from "@/lib/docx-inline-diff";
+} from "@/lib/docx/inline-diff";
 
 /**
  * Nhúng .docx bằng docx-preview (preview-only).

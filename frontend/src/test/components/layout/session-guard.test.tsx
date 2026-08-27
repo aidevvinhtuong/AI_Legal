@@ -21,11 +21,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock("@/lib/review-service", () => ({
+vi.mock("@/lib/services/reviews", () => ({
   clearSession: vi.fn(),
 }));
 
-vi.mock("@/lib/session-keepalive", () => ({
+vi.mock("@/lib/auth/session-keepalive", () => ({
   onSessionEvent: (fn: (e: unknown) => void) => {
     listeners.push(fn);
     return () => listeners.splice(listeners.indexOf(fn), 1);

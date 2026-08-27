@@ -6,7 +6,7 @@
  * `/api/v1/form-lists` — xem `form-lists-service`.
  */
 
-import type { ContractTypeConfig, DiscountFlag, DocumentCategory } from "@/lib/types";
+import type { ContractTypeConfig, DiscountFlag, DocumentCategory } from "@/lib/domain/types";
 
 export type FormListItemStatus = "active" | "archived";
 

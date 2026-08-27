@@ -16,10 +16,10 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { clearSession, getSession } from "@/lib/session";
-import { startSessionKeepAlive } from "@/lib/session-keepalive";
+import { clearSession, getSession } from "@/lib/auth/session";
+import { startSessionKeepAlive } from "@/lib/auth/session-keepalive";
 import { SessionGuard } from "@/components/layout/session-guard";
-import type { UserSession } from "@/lib/types";
+import type { UserSession } from "@/lib/domain/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
@@ -29,7 +29,7 @@ import {
   canAccessTasks,
   canAccessUsers,
   canCreateContracts,
-} from "@/lib/roles";
+} from "@/lib/domain/roles";
 
 const SIDEBAR_KEY = "ai_econtract_sidebar_collapsed";
 

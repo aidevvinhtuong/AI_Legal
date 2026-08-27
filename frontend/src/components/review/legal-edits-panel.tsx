@@ -32,8 +32,8 @@ import {
   listLegalEdits,
   submitLegalEdits,
   type LegalEditDraft,
-} from "@/lib/review-service";
-import type { ContractReview, LegalEdit } from "@/lib/types";
+} from "@/lib/services/reviews";
+import type { ContractReview, LegalEdit } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
 const KIND_LABEL: Record<LegalEdit["kind"], string> = {

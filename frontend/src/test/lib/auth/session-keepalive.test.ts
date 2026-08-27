@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { nextAction } from "@/lib/session-keepalive";
+import { nextAction } from "@/lib/auth/session-keepalive";
 
 const MIN = 60_000;
 const T0 = 1_700_000_000_000;

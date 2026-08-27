@@ -27,8 +27,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { watchReviewStatus } from "@/lib/review-service";
-import type { ReviewStatus, ReviewStatusEvent } from "@/lib/types";
+import { watchReviewStatus } from "@/lib/services/reviews";
+import type { ReviewStatus, ReviewStatusEvent } from "@/lib/domain/types";
 
 /** Trạng thái còn tự đổi mà không cần người dùng làm gì. */
 const IN_FLIGHT: ReviewStatus[] = ["queued", "processing", "syncing_econtract"];

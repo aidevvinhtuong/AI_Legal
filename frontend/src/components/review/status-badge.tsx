@@ -1,4 +1,4 @@
-import type { ReviewStatus } from "@/lib/types";
+import type { ReviewStatus } from "@/lib/domain/types";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 

@@ -18,7 +18,7 @@ import type {
   CodeLabelOption,
   ContractNameOption,
   DiscountOption,
-} from "@/lib/form-lists-store";
+} from "@/lib/domain/form-lists";
 import {
   createReview,
   listBusinessEntities,
@@ -27,8 +27,8 @@ import {
   listContractTypes,
   listDiscountOptions,
   listDocumentCategories,
-} from "@/lib/review-service";
-import type { ContractTypeConfig, DocumentCategory } from "@/lib/types";
+} from "@/lib/services/reviews";
+import type { ContractTypeConfig, DocumentCategory } from "@/lib/domain/types";
 import { FileText, Loader2, Sparkles, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 

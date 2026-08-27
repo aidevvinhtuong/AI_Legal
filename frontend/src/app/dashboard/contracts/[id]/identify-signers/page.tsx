@@ -7,14 +7,14 @@ import { IdentifySignersPanel } from "@/components/signing/identify-signers-pane
 import { StatusBadge } from "@/components/review/status-badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
-import { getSession } from "@/lib/session";
+import { getSession } from "@/lib/auth/session";
 import {
   applySigningMatrix,
   getReviewById,
   saveSigningRecipients,
-} from "@/lib/review-service";
-import { validateIdentifySigners } from "@/lib/econtract-flow";
-import type { ContractReview, SignRecipient } from "@/lib/types";
+} from "@/lib/services/reviews";
+import { validateIdentifySigners } from "@/lib/domain/econtract-flow";
+import type { ContractReview, SignRecipient } from "@/lib/domain/types";
 import { ArrowLeft, ArrowRight, ExternalLink, Loader2, Save } from "lucide-react";
 
 type StepItem =

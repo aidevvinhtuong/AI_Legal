@@ -6,7 +6,7 @@ import type {
   EcontractUiRole,
   MarkerType,
   SignRecipient,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 
 /** Mặc định: gửi cả email + SMS FPT.eContract. */
 export const DEFAULT_NOTIFY_TYPES: EcontractNotifyType[] = [

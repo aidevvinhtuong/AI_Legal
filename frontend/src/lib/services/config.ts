@@ -10,14 +10,14 @@ import {
   type ContractTypeConfigVersion,
   type ApprovalMatrixConfig,
   type SigningAuthorityRule,
-} from "@/lib/config-types";
-import type { ContractNameOption } from "@/lib/form-lists-store";
-import { getSession } from "@/lib/session";
+} from "@/lib/domain/config-types";
+import type { ContractNameOption } from "@/lib/domain/form-lists";
+import { getSession } from "@/lib/auth/session";
 import type {
   ContractGroup,
   SignRecipient,
   UserRole,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 
 
 

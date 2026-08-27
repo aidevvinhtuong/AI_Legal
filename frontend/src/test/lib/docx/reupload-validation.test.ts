@@ -13,7 +13,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { formatIssueMessage, type FieldStructureIssue } from "@/lib/reupload-validation";
+import { formatIssueMessage, type FieldStructureIssue } from "@/lib/docx/reupload-validation";
 
 /** Bảy loại backend thật sự phát ra — khớp `structural_binding.py`. */
 const BACKEND_TYPES = [

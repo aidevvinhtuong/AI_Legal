@@ -17,7 +17,7 @@ import type {
   AiProposal,
   ContractInsight,
   ReviewAttachment,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 import { Check, PenLine, RotateCcw } from "lucide-react";
 

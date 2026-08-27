@@ -24,8 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/review/status-badge";
 import { useToast } from "@/components/ui/use-toast";
-import { UI_ROLE_LABEL, normalizeUiRole } from "@/lib/econtract-flow";
-import { getSession } from "@/lib/session";
+import { UI_ROLE_LABEL, normalizeUiRole } from "@/lib/domain/econtract-flow";
+import { getSession } from "@/lib/auth/session";
 import {
   completeMarkersAndPushEcontract,
   getMarkerAnchors,
@@ -34,13 +34,13 @@ import {
   recipientNeedsMarker,
   removeMarker,
   validateMarkers,
-} from "@/lib/review-service";
+} from "@/lib/services/reviews";
 import type {
   ContractReview,
   EcontractSignType,
   MarkerAnchor,
   SignRecipient,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import {
   AlertTriangle,
   ArrowLeft,

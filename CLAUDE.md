@@ -311,7 +311,7 @@ FE gọi `NEXT_PUBLIC_API_URL` (mặc định `http://localhost:8000`) — chưa
 
 | Tài sản | File | Ghi chú |
 |---------|------|---------|
-| Phân tích OOXML vùng mở/khoá | `frontend/src/lib/docx-content-controls.ts` | Đọc `w:sdt`, `w:permStart/End`, `w:documentProtection`, `w:lock`. **Đang parse bằng regex trên raw XML — BE phải viết lại bằng XML parser thật.** Chưa hỗ trợ Legacy Form Field |
+| Phân tích OOXML vùng mở/khoá | `frontend/src/lib/docx/content-controls.ts` | Đọc `w:sdt`, `w:permStart/End`, `w:documentProtection`, `w:lock`. **Đang parse bằng regex trên raw XML — BE phải viết lại bằng XML parser thật.** Chưa hỗ trợ Legacy Form Field |
 | Validate reupload PT3 | `reupload-validation.ts`, `reupload-validation-node.ts` | Logic tốt: so sánh field theo `w:tag`, `lockedFingerprint` hash vùng khoá, phát hiện `missing_field` / `locked_region_modified` / `unexpected_new_field` |
 | Validate marker eContract | `review-service.ts` → `validateMarkers()` | 8 luật theo bảng mã lỗi FPT — BE **bắt buộc** validate lại lần 2 với cùng mã lỗi |
 | Dựng payload eContract | `review-service.ts` → `buildEcontractPayload()` | Đúng cấu trúc excall của FPT |
@@ -482,7 +482,7 @@ Hai module đánh dấu ★ là nơi tập trung toàn bộ độ khó. Chúng p
 
 ### 6.3. Data model — điểm cần thiết kế kỹ
 
-Bám tên field trong `frontend/src/lib/types.ts` để FE không phải refactor. Các bảng tối thiểu:
+Bám tên field trong `frontend/src/lib/domain/types.ts` để FE không phải refactor. Các bảng tối thiểu:
 
 `users`, `contract_reviews`, `review_versions`, `review_files`, `document_fields`, `ai_runs`, `ai_findings`, `ai_proposals`, `chat_messages`, `comments`, `comment_replies`, `legal_edits` (track changes), `sign_recipients`, `markers`, `econtract_envelopes`, `econtract_outbox`, `contract_type_configs`, `checklist_clauses`, `approval_matrices`, `form_lists`, `audit_log`.
 

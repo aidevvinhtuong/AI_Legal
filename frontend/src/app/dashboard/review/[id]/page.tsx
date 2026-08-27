@@ -20,8 +20,8 @@ import type {
 } from "@/components/review/superdoc-embed";
 import { StatusBadge } from "@/components/review/status-badge";
 import { useToast } from "@/components/ui/use-toast";
-import { getSession } from "@/lib/session";
-import { isInFlight, useReviewStatus } from "@/lib/use-review-status";
+import { getSession } from "@/lib/auth/session";
+import { isInFlight, useReviewStatus } from "@/lib/hooks/use-review-status";
 import {
   acceptAllProposals,
   getReviewById,
@@ -30,13 +30,13 @@ import {
   updateProposalStatus,
   updateReviewedDocument,
   updateReviewedSection,
-} from "@/lib/review-service";
+} from "@/lib/services/reviews";
 import {
   canAccessContractsList,
   canCreateContracts,
   canSuggestEdits,
-} from "@/lib/roles";
-import type { ContractReview } from "@/lib/types";
+} from "@/lib/domain/roles";
+import type { ContractReview } from "@/lib/domain/types";
 import { FileDown, Loader2, Sparkles, Upload } from "lucide-react";
 import Link from "next/link";
 

@@ -8,7 +8,7 @@ import {
   PIPELINE_STAGES,
   STAGE_PLACEHOLDERS,
   type PipelineStage,
-} from "@/lib/system-prompts/constants";
+} from "@/lib/domain/system-prompts/constants";
 
 export type { PipelineStage };
 export { PIPELINE_STAGES, STAGE_PLACEHOLDERS };

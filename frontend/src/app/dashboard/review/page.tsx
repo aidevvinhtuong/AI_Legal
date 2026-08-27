@@ -15,15 +15,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
-import type { ContractNameOption } from "@/lib/form-lists-store";
-import { getSession } from "@/lib/session";
+import type { ContractNameOption } from "@/lib/domain/form-lists";
+import { getSession } from "@/lib/auth/session";
 import {
   createQuickReview,
   listContractNames,
   listDocumentCategories,
-} from "@/lib/review-service";
-import { canAccessContractsList, canCreateContracts } from "@/lib/roles";
-import type { DocumentCategory } from "@/lib/types";
+} from "@/lib/services/reviews";
+import { canAccessContractsList, canCreateContracts } from "@/lib/domain/roles";
+import type { DocumentCategory } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 import { FileText, Loader2, Sparkles, Upload, X } from "lucide-react";
 

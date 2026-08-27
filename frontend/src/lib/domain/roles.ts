@@ -1,6 +1,6 @@
-import { hasPermission } from "@/lib/permissions";
-import type { PermissionKey, UserRole, UserSession } from "@/lib/types";
-import { defaultPermissionsForRole } from "@/lib/permissions";
+import { hasPermission } from "@/lib/domain/permissions";
+import type { PermissionKey, UserRole, UserSession } from "@/lib/domain/types";
+import { defaultPermissionsForRole } from "@/lib/domain/permissions";
 
 type RoleOrSession = UserRole | UserSession | null | undefined;
 

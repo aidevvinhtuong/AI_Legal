@@ -30,8 +30,8 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { HttpRecorder } from "@/test/http-recorder";
-import type { ContractReview, DocumentIntakeMeta, SignRecipient } from "@/lib/types";
-import { setSession } from "@/lib/session";
+import type { ContractReview, DocumentIntakeMeta, SignRecipient } from "@/lib/domain/types";
+import { setSession } from "@/lib/auth/session";
 import {
   completeMarkersAndPushEcontract,
   createReview,
@@ -41,7 +41,7 @@ import {
   submitDraftToQueue,
   submitToLegal,
   validateMarkers,
-} from "@/lib/review-service";
+} from "@/lib/services/reviews";
 
 const REVIEW_ID = "rev_1";
 

@@ -39,7 +39,7 @@ import type {
   ChecklistFinding,
   ContractInsight,
   InsightSeverity,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
 export interface ContractInsightPopupProps {

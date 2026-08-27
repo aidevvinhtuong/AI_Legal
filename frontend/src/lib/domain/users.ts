@@ -6,8 +6,8 @@
  * helper không cần truy vấn.
  */
 
-import { defaultPermissionsForRole } from "@/lib/permissions";
-import type { PermissionKey, UserDepartment, UserRole } from "@/lib/types";
+import { defaultPermissionsForRole } from "@/lib/domain/permissions";
+import type { PermissionKey, UserDepartment, UserRole } from "@/lib/domain/types";
 
 export const USER_ROLES: { value: UserRole; label: string }[] = [
   { value: "purchasing", label: "Purchasing" },

@@ -13,17 +13,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge, STATUS_LABEL } from "@/components/review/status-badge";
-import { getSession } from "@/lib/session";
+import { getSession } from "@/lib/auth/session";
 import {
   listReviews,
-} from "@/lib/review-service";
-import type { ContractReview, ReviewAttachment, ReviewStatus } from "@/lib/types";
+} from "@/lib/services/reviews";
+import type { ContractReview, ReviewAttachment, ReviewStatus } from "@/lib/domain/types";
 import { downloadFile } from "@/lib/api";
 import {
   canAccessConfig,
   canAccessConfigurations,
   canCreateContracts,
-} from "@/lib/roles";
+} from "@/lib/domain/roles";
 import {
   ArrowDown,
   ArrowUp,

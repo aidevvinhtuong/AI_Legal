@@ -32,8 +32,8 @@ import {
   listComments,
   replyComment,
   resolveComment,
-} from "@/lib/review-service";
-import type { CommentThread, EditableField } from "@/lib/types";
+} from "@/lib/services/reviews";
+import type { CommentThread, EditableField } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
 type Filter = "open" | "all";

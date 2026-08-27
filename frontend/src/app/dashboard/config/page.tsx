@@ -35,15 +35,15 @@ import {
   listParentCategories,
   mergeParentAndChildConfig,
   pickChildLineConfig,
-} from "@/lib/config-service";
+} from "@/lib/services/config";
 import type {
   ApprovalMatrixConfig,
   ContractParentCategory,
   ContractTypeConfigVersion,
-} from "@/lib/config-types";
-import type { ContractNameOption } from "@/lib/form-lists-store";
-import { getSession } from "@/lib/session";
-import { canAccessConfig } from "@/lib/roles";
+} from "@/lib/domain/config-types";
+import type { ContractNameOption } from "@/lib/domain/form-lists";
+import { getSession } from "@/lib/auth/session";
+import { canAccessConfig } from "@/lib/domain/roles";
 import {
   ArrowLeft,
   Loader2,

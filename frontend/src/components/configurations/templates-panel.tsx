@@ -32,10 +32,10 @@ import {
   lintTemplate,
   registerTemplate,
   setTemplateFieldLabels,
-} from "@/lib/review-service";
+} from "@/lib/services/reviews";
 import { downloadFile } from "@/lib/api";
-import type { ContractNameOption } from "@/lib/form-lists-store";
-import type { ContractTemplateInfo, TemplateLintResult } from "@/lib/types";
+import type { ContractNameOption } from "@/lib/domain/form-lists";
+import type { ContractTemplateInfo, TemplateLintResult } from "@/lib/domain/types";
 
 /** Vùng hệ thống KHÔNG ghi được — chỉ chú thích (chế độ C của TS-04). */
 const ANNOTATION_ONLY = new Set(["empty", "cross_table"]);

@@ -22,8 +22,8 @@
  * đồng chung giữa hai bên; đổi tên khoá phải sửa cả hai chỗ.
  */
 
-import { defaultPermissionsForRole } from "@/lib/permissions";
-import type { UserSession } from "@/lib/types";
+import { defaultPermissionsForRole } from "@/lib/domain/permissions";
+import type { UserSession } from "@/lib/domain/types";
 
 const TOKEN_KEY = "token";
 const USER_KEY = "user";

@@ -34,12 +34,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { clearSession } from "@/lib/session";
+import { clearSession } from "@/lib/auth/session";
 import {
   onSessionEvent,
   refreshSession,
   type SessionEvent,
-} from "@/lib/session-keepalive";
+} from "@/lib/auth/session-keepalive";
 
 function mmss(seconds: number): string {
   const m = Math.floor(seconds / 60);

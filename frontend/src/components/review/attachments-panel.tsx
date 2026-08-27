@@ -24,8 +24,8 @@ import { Download, FileUp, Loader2, Paperclip } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { downloadFile } from "@/lib/api";
-import { addAttachment, listAttachments } from "@/lib/review-service";
-import type { AttachedFile } from "@/lib/types";
+import { addAttachment, listAttachments } from "@/lib/services/reviews";
+import type { AttachedFile } from "@/lib/domain/types";
 import { cn } from "@/lib/utils";
 
 function humanSize(bytes: number): string {

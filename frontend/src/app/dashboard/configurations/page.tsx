@@ -11,14 +11,14 @@ import { SystemPromptsPanel } from "@/components/configurations/system-prompts-p
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { getSession } from "@/lib/session";
+import { getSession } from "@/lib/auth/session";
 import {
   canAccessConfig,
   canAccessConfigurations,
   canAccessFormLists,
   canAccessSystemPrompts,
-} from "@/lib/roles";
-import type { UserSession } from "@/lib/types";
+} from "@/lib/domain/roles";
+import type { UserSession } from "@/lib/domain/types";
 import {
   ArrowLeft,
   FileCode2,

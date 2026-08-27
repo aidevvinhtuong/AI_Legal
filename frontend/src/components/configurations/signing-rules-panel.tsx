@@ -18,16 +18,16 @@ import {
   listSigningRules,
   saveSigningRules,
   validateSigningRules,
-} from "@/lib/config-service";
+} from "@/lib/services/config";
 import type {
   ContractParentCategory,
   SigningAuthorityRule,
   SigningSlotRole,
-} from "@/lib/config-types";
-import { fetchFormLists } from "@/lib/form-lists-service";
-import type { CodeLabelOption } from "@/lib/form-lists-store";
-import type { UserDirectoryEntry } from "@/lib/types";
-import { fetchUserDirectory } from "@/lib/users-service";
+} from "@/lib/domain/config-types";
+import { fetchFormLists } from "@/lib/services/form-lists";
+import type { CodeLabelOption } from "@/lib/domain/form-lists";
+import type { UserDirectoryEntry } from "@/lib/domain/types";
+import { fetchUserDirectory } from "@/lib/services/users";
 import { Check, ChevronDown, Loader2, Plus, Save, Trash2 } from "lucide-react";
 
 function newRule(

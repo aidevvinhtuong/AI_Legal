@@ -30,8 +30,8 @@ import type {
   CodeLabelOption,
   ContractNameOption,
   DiscountOption,
-} from "@/lib/form-lists-store";
-import { getSession } from "@/lib/session";
+} from "@/lib/domain/form-lists";
+import { getSession } from "@/lib/auth/session";
 import {
   legalDecide,
   listBusinessEntities,
@@ -42,16 +42,16 @@ import {
   listDocumentCategories,
   listReviews,
   managerDecide,
-} from "@/lib/review-service";
-import { canSuggestEdits } from "@/lib/roles";
-import { displayFullName } from "@/lib/user-store";
+} from "@/lib/services/reviews";
+import { canSuggestEdits } from "@/lib/domain/roles";
+import { displayFullName } from "@/lib/domain/users";
 import type {
   ContractReview,
   ContractTypeConfig,
   DocumentCategory,
   StructuredFeedbackItem,
   UserSession,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import {
   ArrowLeft,
   Check,

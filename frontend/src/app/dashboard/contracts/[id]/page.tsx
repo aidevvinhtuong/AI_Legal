@@ -31,9 +31,9 @@ import type {
   CodeLabelOption,
   ContractNameOption,
   DiscountOption,
-} from "@/lib/form-lists-store";
-import { getSession } from "@/lib/session";
-import { isInFlight, useReviewStatus } from "@/lib/use-review-status";
+} from "@/lib/domain/form-lists";
+import { getSession } from "@/lib/auth/session";
+import { isInFlight, useReviewStatus } from "@/lib/hooks/use-review-status";
 import {
   acceptAllProposals,
   getReviewById,
@@ -51,14 +51,14 @@ import {
   updateReviewIntake,
   updateReviewedDocument,
   updateReviewedSection,
-} from "@/lib/review-service";
-import { isLegalLike } from "@/lib/roles";
+} from "@/lib/services/reviews";
+import { isLegalLike } from "@/lib/domain/roles";
 import type {
   ContractReview,
   ContractTypeConfig,
   ContractVersionEntry,
   DocumentCategory,
-} from "@/lib/types";
+} from "@/lib/domain/types";
 import {
   CheckSquare,
   Download,

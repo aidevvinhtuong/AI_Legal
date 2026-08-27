@@ -5,12 +5,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/components/ui/use-toast";
-import type { PipelineStage } from "@/lib/system-prompts/constants";
+import type { PipelineStage } from "@/lib/domain/system-prompts/constants";
 import {
   fetchSystemPrompts,
   updateSystemPrompt,
   type SystemPromptSnapshot,
-} from "@/lib/system-prompts-service";
+} from "@/lib/services/system-prompts";
 import { ChevronDown, Loader2, Save } from "lucide-react";
 import { cn } from "@/lib/utils";
 

@@ -27,10 +27,10 @@ import {
   PERMISSION_CATALOG,
   defaultPermissionsForRole,
   permissionLabels,
-} from "@/lib/permissions";
-import { getSession } from "@/lib/session";
-import { canAccessUsers } from "@/lib/roles";
-import type { AppUser, PermissionKey, UserDepartment, UserRole } from "@/lib/types";
+} from "@/lib/domain/permissions";
+import { getSession } from "@/lib/auth/session";
+import { canAccessUsers } from "@/lib/domain/roles";
+import type { AppUser, PermissionKey, UserDepartment, UserRole } from "@/lib/domain/types";
 import {
   USER_DEPARTMENTS,
   USER_ROLES,
@@ -41,7 +41,7 @@ import {
   roleLabel,
   updateUserRemote,
   type UserInput,
-} from "@/lib/users-service";
+} from "@/lib/services/users";
 import { Loader2, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 

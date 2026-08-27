@@ -15,8 +15,8 @@ import { Label } from "@/components/ui/label";
 import {
   changeOwnPassword,
   loginWithCredentials,
-} from "@/lib/review-service";
-import type { UserSession } from "@/lib/types";
+} from "@/lib/services/reviews";
+import type { UserSession } from "@/lib/domain/types";
 import {
   Eye,
   EyeOff,

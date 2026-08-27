@@ -19,7 +19,7 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReviewStatusEvent } from "@/lib/types";
+import type { ReviewStatusEvent } from "@/lib/domain/types";
 
 /** Điều khiển tay client SSE để test không phụ thuộc mạng. */
 const watchers: {
@@ -30,7 +30,7 @@ const watchers: {
 }[] = [];
 const unwatch = vi.fn();
 
-vi.mock("@/lib/review-service", () => ({
+vi.mock("@/lib/services/reviews", () => ({
   watchReviewStatus: (id: string, handlers: Record<string, unknown>) => {
     watchers.push({ id, ...handlers });
     return unwatch;
@@ -40,7 +40,7 @@ vi.mock("@/lib/review-service", () => ({
 const apiGet = vi.fn();
 vi.mock("@/lib/api", () => ({ api: { get: (...a: unknown[]) => apiGet(...a) } }));
 
-import { isInFlight, useReviewStatus } from "@/lib/use-review-status";
+import { isInFlight, useReviewStatus } from "@/lib/hooks/use-review-status";
 
 function statusEvent(patch: Partial<ReviewStatusEvent> = {}): ReviewStatusEvent {
   return {

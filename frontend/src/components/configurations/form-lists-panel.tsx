@@ -18,12 +18,12 @@ import {
   type FormListKind,
   type FormListUsageMap,
   type FormListsState,
-} from "@/lib/form-lists-store";
+} from "@/lib/domain/form-lists";
 import {
   fetchFormLists,
   fetchFormListUsage,
   persistFormLists,
-} from "@/lib/form-lists-service";
+} from "@/lib/services/form-lists";
 import {
   Archive,
   ArchiveRestore,

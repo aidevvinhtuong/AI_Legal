@@ -29,8 +29,8 @@ import type {
   ChecklistClause,
   ConfigAuditEntry,
   ContractTypeConfigVersion,
-} from "@/lib/config-types";
-import { isClausePlaybookIncomplete } from "@/lib/config-types";
+} from "@/lib/domain/config-types";
+import { isClausePlaybookIncomplete } from "@/lib/domain/config-types";
 import {
   clauseKindLabel,
   findConfigByBusinessKey,
@@ -43,7 +43,7 @@ import {
   saveConfigDraft,
   severityLabel,
   upsertClause,
-} from "@/lib/config-service";
+} from "@/lib/services/config";
 import {
   AlertTriangle,
   ArrowLeft,
