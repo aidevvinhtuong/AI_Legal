@@ -32,11 +32,11 @@ import type {
   ContractNameOption,
   DiscountOption,
 } from "@/lib/form-lists-store";
+import { getSession } from "@/lib/session";
+import { isInFlight, useReviewStatus } from "@/lib/use-review-status";
 import {
   acceptAllProposals,
-  advanceQueue,
   getReviewById,
-  getSession,
   listBusinessEntities,
   listContractBases,
   listContractNames,
@@ -180,16 +180,22 @@ export default function ContractDetailPage() {
       .finally(() => setLoading(false));
   }, [refresh, router, toast]);
 
-  useEffect(() => {
-    if (!review) return;
-    if (review.status !== "queued" && review.status !== "processing") return;
-    const t = setTimeout(async () => {
-      const updated = await advanceQueue(review.id);
-      setReview(updated);
-      setIntakeForm(intakeFromReview(updated));
-    }, 1600);
-    return () => clearTimeout(t);
-  }, [review]);
+  /**
+   * Theo dõi tiến độ AI bằng SSE (lùi về poll `/status` nếu SSE hỏng).
+   *
+   * Chỉ tải lại bản đầy đủ **một lần** lúc job xong, thay vì mỗi 1,6 giây như
+   * trước — `GET /reviews/{id}` kéo theo cả `fields`, `proposals`, `messages`.
+   */
+  const { event: liveStatus, degraded: statusDegraded } = useReviewStatus(
+    review?.id,
+    review?.status,
+    useCallback(() => {
+      void refresh().catch(() => {
+        // Lỗi tải lại đã có `refresh` xử lý ở đường chính; ở đây nuốt để một
+        // lần mạng chập không ném unhandled rejection.
+      });
+    }, [refresh])
+  );
 
   if (loading || !review || !intakeForm) {
     return (
@@ -207,8 +213,17 @@ export default function ContractDetailPage() {
     ["draft", "reviewed", "awaiting_markers", "rejected"].includes(review.status);
   /** Sau Submit + AI review: luôn mở Chat + preview (không chờ hết queue). */
   const showWorkspace = !isDraft;
-  const isQueueing =
-    review.status === "queued" || review.status === "processing";
+  // Trạng thái từ SSE mới hơn bản review đang giữ trong state — ưu tiên nó để
+  // banner tiến độ không trễ một nhịp so với thực tế.
+  const displayStatus = liveStatus?.status ?? review.status;
+  const isQueueing = isInFlight(displayStatus);
+  const queuePos = liveStatus?.queuePosition ?? review.queuePosition;
+  const queueLabel =
+    displayStatus === "queued"
+      ? `Đang chờ AI review${queuePos ? ` (vị trí ~${queuePos})` : ""}`
+      : displayStatus === "syncing_econtract"
+        ? "Đang đẩy sang FPT.eContract…"
+        : "AI đang đối chiếu checklist…";
   const defaultMainTab = isDraft ? "info" : "ai-review";
   const versionHistory: ContractVersionEntry[] = review.versionHistory || [];
   const viewingVersionEntry =
@@ -568,16 +583,18 @@ export default function ContractDetailPage() {
                       <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate">
-                          {review.status === "queued"
-                            ? `Đang chờ AI review${
-                                review.queuePosition
-                                  ? ` (vị trí ~${review.queuePosition})`
-                                  : ""
-                              }`
-                            : "AI đang đối chiếu checklist…"}
+                          {queueLabel}
+                          {statusDegraded && (
+                            /* Nói thật khi realtime hỏng: người dùng thấy số
+                               liệu chậm hơn thì biết là do đâu, thay vì tưởng
+                               hệ thống treo. */
+                            <span className="ml-1 font-normal text-sky-700/70">
+                              · cập nhật chậm
+                            </span>
+                          )}
                         </p>
                         <Progress
-                          value={review.status === "queued" ? 35 : 70}
+                          value={liveStatus?.status === "processing" ? 70 : 35}
                           className="mt-1 h-1.5"
                         />
                       </div>

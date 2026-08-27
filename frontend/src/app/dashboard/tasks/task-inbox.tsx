@@ -31,8 +31,8 @@ import type {
   ContractNameOption,
   DiscountOption,
 } from "@/lib/form-lists-store";
+import { getSession } from "@/lib/session";
 import {
-  getSession,
   legalDecide,
   listBusinessEntities,
   listContractBases,

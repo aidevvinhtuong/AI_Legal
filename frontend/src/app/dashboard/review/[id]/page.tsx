@@ -20,11 +20,11 @@ import type {
 } from "@/components/review/superdoc-embed";
 import { StatusBadge } from "@/components/review/status-badge";
 import { useToast } from "@/components/ui/use-toast";
+import { getSession } from "@/lib/session";
+import { isInFlight, useReviewStatus } from "@/lib/use-review-status";
 import {
   acceptAllProposals,
-  advanceQueue,
   getReviewById,
-  getSession,
   sendChat,
   undoAllProposals,
   updateProposalStatus,
@@ -98,6 +98,11 @@ export default function QuickReviewWorkspacePage() {
     setUserId(session?.userId || "");
   }, [router]);
 
+  const refresh = useCallback(
+    () => getReviewById(params.id).then(setReview),
+    [params.id]
+  );
+
   useEffect(() => {
     getReviewById(params.id)
       .then(setReview)
@@ -112,15 +117,16 @@ export default function QuickReviewWorkspacePage() {
       .finally(() => setLoading(false));
   }, [params.id, router, toast]);
 
-  useEffect(() => {
-    if (!review) return;
-    if (review.status !== "queued" && review.status !== "processing") return;
-    const t = setTimeout(async () => {
-      const updated = await advanceQueue(review.id);
-      setReview(updated);
-    }, 1600);
-    return () => clearTimeout(t);
-  }, [review]);
+  /** SSE thay cho vòng poll cũ — xem `use-review-status`. */
+  const { event: liveStatus, degraded: statusDegraded } = useReviewStatus(
+    review?.id,
+    review?.status,
+    useCallback(() => {
+      void refresh().catch(() => {
+        /* lỗi tải lại đã xử lý ở đường chính */
+      });
+    }, [refresh])
+  );
 
   if (loading || !review) {
     return (
@@ -132,8 +138,9 @@ export default function QuickReviewWorkspacePage() {
     );
   }
 
-  const isQueueing =
-    review.status === "queued" || review.status === "processing";
+  const displayStatus = liveStatus?.status ?? review.status;
+  const isQueueing = isInFlight(displayStatus);
+  const queuePos = liveStatus?.queuePosition ?? review.queuePosition;
   const canEdit = ["draft", "reviewed", "awaiting_markers", "rejected"].includes(
     review.status
   );
@@ -195,16 +202,17 @@ export default function QuickReviewWorkspacePage() {
             <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
             <div className="min-w-0 flex-1">
               <p className="font-medium truncate">
-                {review.status === "queued"
-                  ? `Đang chờ AI review${
-                      review.queuePosition
-                        ? ` (vị trí ~${review.queuePosition})`
-                        : ""
-                    }`
+                {displayStatus === "queued"
+                  ? `Đang chờ AI review${queuePos ? ` (vị trí ~${queuePos})` : ""}`
                   : "AI đang đối chiếu checklist…"}
+                {statusDegraded && (
+                  <span className="ml-1 font-normal text-sky-700/70">
+                    · cập nhật chậm
+                  </span>
+                )}
               </p>
               <Progress
-                value={review.status === "queued" ? 35 : 70}
+                value={displayStatus === "processing" ? 70 : 35}
                 className="mt-1 h-1.5"
               />
             </div>

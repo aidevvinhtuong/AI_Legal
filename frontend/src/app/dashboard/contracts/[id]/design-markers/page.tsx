@@ -25,11 +25,11 @@ import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/review/status-badge";
 import { useToast } from "@/components/ui/use-toast";
 import { UI_ROLE_LABEL, normalizeUiRole } from "@/lib/econtract-flow";
+import { getSession } from "@/lib/session";
 import {
   completeMarkersAndPushEcontract,
   getMarkerAnchors,
   getReviewById,
-  getSession,
   placeMarkerOnDocument,
   recipientNeedsMarker,
   removeMarker,

@@ -316,8 +316,9 @@ Mọi service gọi REST tới **`backend/`**. Spec endpoint: [docs/requirements
 
 | File | Mục đích |
 |------|----------|
-| [frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx](frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx) | Tóm tắt yêu cầu **Rev12** (nguồn README này) |
-| [frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx](frontend/public/samples/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx) | Bản Rev10 cũ (tham chiếu lịch sử) |
+| [docs/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx](docs/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev12.docx) | Tóm tắt yêu cầu **Rev12** (nguồn README này) |
+| [docs/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx](docs/Tom_tat_yeu_cau_AI_Review_Hop_dong_Rev10.docx) | Bản Rev10 cũ (tham chiếu lịch sử) |
+| [template/](template/) | Template `.docx` do Legal ban hành — **không** nằm trong `frontend/public/` để không bị phục vụ công khai; đăng ký vào hệ thống qua Configurations → Templates |
 | [prompts/](prompts/) | System Prompt theo stage + con trỏ `current.json` |
 | [docs/images/signing-flow/](docs/images/signing-flow/) | Ảnh **chụp từ hệ thống demo** (Task, identify-signers, design-markers) — dùng trong Blueprint mục 7 / phụ lục |
 | [docs/api-contract.md](docs/api-contract.md) | Lối vào nhanh → API contract FE↔BE |

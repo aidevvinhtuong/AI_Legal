@@ -13,7 +13,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { StatusBadge, STATUS_LABEL } from "@/components/review/status-badge";
-import { getSession, listReviews } from "@/lib/review-service";
+import { getSession } from "@/lib/session";
+import {
+  listReviews,
+} from "@/lib/review-service";
 import type { ContractReview, ReviewAttachment, ReviewStatus } from "@/lib/types";
 import { downloadFile } from "@/lib/api";
 import {

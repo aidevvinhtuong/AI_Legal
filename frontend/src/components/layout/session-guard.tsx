@@ -34,7 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { clearSession } from "@/lib/review-service";
+import { clearSession } from "@/lib/session";
 import {
   onSessionEvent,
   refreshSession,

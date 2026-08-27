@@ -28,7 +28,7 @@ import {
   defaultPermissionsForRole,
   permissionLabels,
 } from "@/lib/permissions";
-import { getSession } from "@/lib/review-service";
+import { getSession } from "@/lib/session";
 import { canAccessUsers } from "@/lib/roles";
 import type { AppUser, PermissionKey, UserDepartment, UserRole } from "@/lib/types";
 import {

@@ -142,6 +142,20 @@ test-editor-parity: ## Text SuperDoc phải khớp text backend (chạy lại kh
 test-fe: ## Test frontend (vitest + jsdom) — chạy trong container
 	docker compose exec -T frontend npx vitest run
 
+.PHONY: typecheck-fe
+typecheck-fe: ## Typecheck frontend — chạy trong container
+	docker compose exec -T frontend npx tsc --noEmit
+
+.PHONY: snapshot-routes
+snapshot-routes: ## Cập nhật ảnh chụp route backend cho contract test FE
+	docker compose exec -T api python -c "\
+from app.main import app; import json; \
+spec = app.openapi(); \
+routes = sorted((m.upper()+' '+p) for p, ops in spec['paths'].items() for m in ops if m in ('get','post','put','patch','delete')); \
+print(json.dumps({'generatedFrom':'backend app.main:app','routes':routes}, ensure_ascii=False, indent=2))" \
+	  > frontend/src/test/contract/backend-routes.json
+	@echo "Đã cập nhật frontend/src/test/contract/backend-routes.json"
+
 .PHONY: cov
 cov: ## Test kèm báo cáo độ phủ
 	cd $(BACKEND) && ../$(PYTEST) -q --cov=app --cov-report=term-missing

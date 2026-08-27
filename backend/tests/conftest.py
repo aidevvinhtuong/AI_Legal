@@ -22,9 +22,9 @@ CORPUS: dict[str, Path] = {
     # Hợp đồng mua xe đã điền — dùng kiểm ca "một đoạn chứa 2 vùng mở"
     "thaco": REPO_ROOT / "docs" / "HOP DONG MUA XE VAN - VINH TƯƠNG (FN Review) (003) (1).docx",
     # Ba template lỗi — dùng kiểm structural binding phát hiện đúng vấn đề
-    "hdvt_ocean": REPO_ROOT / "frontend/public/samples/1. Template_HDVT-OceanFreight_2026.docx",
-    "hdvt_fcl": REPO_ROOT / "frontend/public/samples/2. Template_HDVT_ inland FCL_2026.docx",
-    "hdvt_dtd": REPO_ROOT / "frontend/public/samples/3. Template_HDVT_DTD_2026.docx",
+    "hdvt_ocean": REPO_ROOT / "template" / "1. Template_HDVT-OceanFreight_2026.docx",
+    "hdvt_fcl": REPO_ROOT / "template" / "2. Template_HDVT_ inland FCL_2026.docx",
+    "hdvt_dtd": REPO_ROOT / "template" / "3. Template_HDVT_DTD_2026.docx",
 }
 
 

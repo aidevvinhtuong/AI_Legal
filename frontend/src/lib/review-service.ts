@@ -1,10 +1,11 @@
 import { api, ApiError, fetchBinary } from "@/lib/api";
+import { assertSigningMatrixReady } from "@/lib/config-service";
+import { clearSession, setSession } from "@/lib/session";
 import type {
   CodeLabelOption,
   ContractNameOption,
   DiscountOption,
 } from "@/lib/form-lists-store";
-import { defaultPermissionsForRole } from "@/lib/permissions";
 import type {
   ContractReview,
   ContractTypeConfig,
@@ -34,67 +35,13 @@ import {
   type ReuploadValidationResult,
 } from "@/lib/reupload-validation";
 
-export function getSession(): UserSession | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem("user");
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as UserSession;
-    // Session cũ chưa có permissions → suy từ role
-    if (!parsed.permissions?.length && parsed.role) {
-      parsed.permissions = defaultPermissionsForRole(parsed.role);
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-export function setSession(user: UserSession) {
-  localStorage.setItem("token", user.token);
-  localStorage.setItem("user", JSON.stringify(user));
-  // Trần TUYỆT ĐỐI của phiên — khác hạn của token. Token được gia hạn liên tục
-  // trong lúc còn làm việc; mốc này thì không đẩy được, vì nó tính từ lần nhập
-  // mật khẩu gốc.
-  if (user.sessionExpiresAt) {
-    localStorage.setItem("sessionExpiresAt", user.sessionExpiresAt);
-  }
-}
-
-/** Lưu / lấy TK+MK đăng nhập AI Legal để gọi FPT.eContract login (username/password API). */
-const ECONTRACT_LOGIN_KEY = "econtract_user_login";
-
-export function setEcontractUserLogin(username: string, password: string) {
-  if (typeof window === "undefined") return;
-  sessionStorage.setItem(
-    ECONTRACT_LOGIN_KEY,
-    JSON.stringify({ username, password })
-  );
-}
-
-export function getEcontractUserLogin(): {
-  username: string;
-  password: string;
-} | null {
-  if (typeof window === "undefined") return null;
-  const raw = sessionStorage.getItem(ECONTRACT_LOGIN_KEY);
-  if (!raw) return null;
-  try {
-    const parsed = JSON.parse(raw) as { username?: string; password?: string };
-    if (!parsed.username || !parsed.password) return null;
-    return { username: parsed.username, password: parsed.password };
-  } catch {
-    return null;
-  }
-}
-
-export function clearSession() {
-  localStorage.removeItem("token");
-  localStorage.removeItem("user");
-  if (typeof window !== "undefined") {
-    sessionStorage.removeItem(ECONTRACT_LOGIN_KEY);
-  }
-}
+/**
+ * Tái xuất cho tương thích ngược — nguồn thật là `@/lib/session`.
+ *
+ * Nơi gọi mới nên import thẳng từ `@/lib/session`; giữ ở đây để việc tách
+ * module không kéo theo một lượt sửa 14 file không liên quan.
+ */
+export { clearSession, getSession, setSession } from "@/lib/session";
 
 export async function loginWithCredentials(
   username: string,
@@ -106,7 +53,6 @@ export async function loginWithCredentials(
     { skipAuthRedirect: true }
   )) as UserSession;
   setSession(user);
-  setEcontractUserLogin(username, password);
   return user;
 }
 
@@ -120,7 +66,6 @@ export async function changeOwnPassword(
     oldPassword,
     newPassword,
   });
-  setEcontractUserLogin(username, newPassword);
 }
 
 /** Options cho field "Loại giá trị hợp đồng (Contract value type)" — Form lists cùng tên. */
@@ -297,9 +242,6 @@ export async function createQuickReview(input: {
   });
 }
 
-export async function advanceQueue(id: string): Promise<ContractReview> {
-  return api.get(`/api/v1/reviews/${id}`);
-}
 
 /** Cập nhật thông tin hợp đồng (intake) — dùng khi nháp / trước khi gửi Legal. */
 export async function updateReviewIntake(
@@ -505,7 +447,6 @@ export async function completeMarkersAndPushEcontract(
   }
   const errors = validateMarkers(review.recipients);
   if (errors.length) throw new Error(errors[0]);
-  const { assertSigningMatrixReady } = await import("@/lib/config-service");
   await assertSigningMatrixReady(review);
 
   const data = (await api.post(

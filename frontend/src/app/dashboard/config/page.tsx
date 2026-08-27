@@ -42,7 +42,7 @@ import type {
   ContractTypeConfigVersion,
 } from "@/lib/config-types";
 import type { ContractNameOption } from "@/lib/form-lists-store";
-import { getSession } from "@/lib/review-service";
+import { getSession } from "@/lib/session";
 import { canAccessConfig } from "@/lib/roles";
 import {
   ArrowLeft,

@@ -16,7 +16,7 @@ import {
   Sparkles,
   Users,
 } from "lucide-react";
-import { clearSession, getSession } from "@/lib/review-service";
+import { clearSession, getSession } from "@/lib/session";
 import { startSessionKeepAlive } from "@/lib/session-keepalive";
 import { SessionGuard } from "@/components/layout/session-guard";
 import type { UserSession } from "@/lib/types";

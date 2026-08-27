@@ -11,7 +11,7 @@ import { SystemPromptsPanel } from "@/components/configurations/system-prompts-p
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/use-toast";
-import { getSession } from "@/lib/review-service";
+import { getSession } from "@/lib/session";
 import {
   canAccessConfig,
   canAccessConfigurations,

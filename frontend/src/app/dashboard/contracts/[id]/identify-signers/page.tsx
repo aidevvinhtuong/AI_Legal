@@ -7,10 +7,10 @@ import { IdentifySignersPanel } from "@/components/signing/identify-signers-pane
 import { StatusBadge } from "@/components/review/status-badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
+import { getSession } from "@/lib/session";
 import {
   applySigningMatrix,
   getReviewById,
-  getSession,
   saveSigningRecipients,
 } from "@/lib/review-service";
 import { validateIdentifySigners } from "@/lib/econtract-flow";

@@ -16,9 +16,9 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import type { ContractNameOption } from "@/lib/form-lists-store";
+import { getSession } from "@/lib/session";
 import {
   createQuickReview,
-  getSession,
   listContractNames,
   listDocumentCategories,
 } from "@/lib/review-service";
