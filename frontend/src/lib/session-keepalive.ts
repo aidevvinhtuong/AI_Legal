@@ -34,7 +34,7 @@
  * khẩu, bất kể client làm gì.
  */
 
-import { api, USE_MOCK } from "@/lib/api";
+import { api } from "@/lib/api";
 
 /** Gia hạn khi token đã đi qua ngần này tuổi thọ (và CÓ thao tác). */
 const REFRESH_AT = 0.75;
@@ -254,7 +254,7 @@ function schedule() {
  * Gọi một lần ở khung layout — tự chống gọi trùng.
  */
 export function startSessionKeepAlive(): () => void {
-  if (typeof window === "undefined" || USE_MOCK) return () => {};
+  if (typeof window === "undefined") return () => {};
   if (running) return () => {};
   running = true;
 

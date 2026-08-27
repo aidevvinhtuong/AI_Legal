@@ -4,23 +4,13 @@
  * Browser mặc định gọi relative `/api/v1/...` (Next rewrite → API_REWRITE_URL).
  * Có thể ghi đè bằng NEXT_PUBLIC_API_URL (absolute) khi cần (SSR/test).
  *
- * Mock dữ liệu nghiệp vụ: NEXT_PUBLIC_USE_MOCK=true (localStorage).
- * API server-only (eContract live, prompts file) vẫn gọi BE trừ khi mock eContract.
+ * Không còn chế độ mock: mọi dữ liệu nghiệp vụ đến từ backend.
  */
 
 const RAW_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 /** Base URL: "" = same-origin (/api → rewrite). */
 export const API_BASE_URL = RAW_BASE;
-
-export const USE_MOCK = process.env.NEXT_PUBLIC_USE_MOCK !== "false";
-
-/**
- * Khi USE_MOCK=true: mặc định giả lập đẩy eContract (không cần BE).
- * Bật true để vẫn gọi BE push thật trong lúc demo mock data.
- */
-export const ECONTRACT_LIVE =
-  process.env.NEXT_PUBLIC_ECONTRACT_LIVE === "true";
 
 /**
  * Trình hiển thị `.docx`: `docx-preview` (mặc định) hoặc `superdoc`.

@@ -112,7 +112,7 @@ export function ReviewedWordView({
     activeFile?.originalText ||
     (activeFileId === fileTabs[0]?.id
       ? reviewedText || originalText
-      : "(Chưa có nội dung preview riêng cho file này — mock dùng cùng mẫu .docx.)");
+      : "(Chưa có nội dung preview riêng cho file này.)");
 
   const pendingTypeA = proposals.filter(
     (p) => p.kind === "A" && p.status === "pending"

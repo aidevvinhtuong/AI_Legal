@@ -53,12 +53,8 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Phải truyền lúc build vì Next nhúng cứng vào bundle (xem ghi chú đầu file)
-ARG NEXT_PUBLIC_USE_MOCK=false
 ARG NEXT_PUBLIC_API_URL=""
-ARG NEXT_PUBLIC_ECONTRACT_LIVE=false
-ENV NEXT_PUBLIC_USE_MOCK=${NEXT_PUBLIC_USE_MOCK} \
-    NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
-    NEXT_PUBLIC_ECONTRACT_LIVE=${NEXT_PUBLIC_ECONTRACT_LIVE}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 RUN npm run build
 

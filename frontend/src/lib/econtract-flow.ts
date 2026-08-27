@@ -7,7 +7,6 @@ import type {
   MarkerType,
   SignRecipient,
 } from "@/lib/types";
-import { getUserById } from "@/lib/user-store";
 
 /** Mặc định: gửi cả email + SMS FPT.eContract. */
 export const DEFAULT_NOTIFY_TYPES: EcontractNotifyType[] = [
@@ -121,14 +120,15 @@ export function econtractSignTypes(signType?: EcontractSignType): string[] {
   return ["sign_fca.passcode"];
 }
 
-/** contactId gửi FPT: nhập tay → username user → local-part email → id. */
+/**
+ * contactId gửi FPT: nhập tay → local-part email → id.
+ *
+ * Backend đã điền `contactId` (username tài khoản) khi dựng recipients từ bảng
+ * phân quyền ký, nên ở đây chỉ còn suy luận dự phòng từ email.
+ */
 export function resolveContactId(r: SignRecipient): string {
   const manual = r.contactId?.trim();
   if (manual) return manual;
-  if (r.userId) {
-    const u = getUserById(r.userId);
-    if (u?.username?.trim()) return u.username.trim();
-  }
   const email = r.email?.trim();
   if (email?.includes("@")) {
     const local = email.split("@")[0].replace(/[^a-zA-Z0-9._-]/g, "");

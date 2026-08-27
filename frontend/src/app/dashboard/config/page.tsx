@@ -72,6 +72,8 @@ export default function ConfigListPage() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   /** Tên HĐ đang chọn để thêm overlay — theo parent.id */
   const [pickByParent, setPickByParent] = useState<Record<string, string>>({});
+  /** Số HĐ đang dùng từng Tên hợp đồng — backend đếm, dùng để chặn Xoá. */
+  const [usageByType, setUsageByType] = useState<Record<string, number>>({});
   const perm = getConfigPermission();
 
   const reload = () =>
@@ -80,11 +82,15 @@ export default function ConfigListPage() {
       listMatrices(),
       listParentCategories(),
       listFormListContractNames(),
-    ]).then(([c, m, p, names]) => {
+    ]).then(async ([c, m, p, names]) => {
       setConfigs(c);
       setMatrices(m);
       setParents(p);
       setContractNames(names);
+      const counts = await Promise.all(
+        names.map(async (n) => [n.id, await countReviewsUsingContractType(n.id)] as const)
+      );
+      setUsageByType(Object.fromEntries(counts));
     });
 
   useEffect(() => {
@@ -128,7 +134,7 @@ export default function ConfigListPage() {
             typeId: name.id,
             name,
             config,
-            usage: countReviewsUsingContractType(name.id),
+            usage: usageByType[name.id] ?? 0,
             merged,
           };
         })
@@ -146,7 +152,7 @@ export default function ConfigListPage() {
         availableToAdd,
       };
     });
-  }, [configs, parents, contractNames]);
+  }, [configs, parents, contractNames, usageByType]);
 
   const matrixName = (id: string | null | undefined) => {
     if (!id) return "Global mặc định";
@@ -158,7 +164,7 @@ export default function ConfigListPage() {
       mode: "delete",
       typeId,
       label,
-      usage: countReviewsUsingContractType(typeId),
+      usage: usageByType[typeId] ?? 0,
     });
   };
 

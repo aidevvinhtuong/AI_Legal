@@ -100,7 +100,7 @@ export interface AppUser {
   username: string;
   /** Họ tên hiển thị (Task, người yêu cầu, header…). */
   fullName: string;
-  /** Mật khẩu mock — bản thật sẽ hash phía backend. */
+  /** Chỉ dùng khi IT tạo/đổi mật khẩu; backend hash trước khi lưu. */
   password: string;
   email: string;
   phone: string;
@@ -147,16 +147,14 @@ export interface ContractTypeConfig {
   hasChecklist: boolean;
   /**
    * Backend chỉ phân biệt còn dùng (`active`) hay đã lưu trữ (`archived`) —
-   * workflow Draft/Publish đã bỏ khỏi Sprint 1. `draft`/`published` còn ở đây
-   * vì dữ liệu mock cũ dùng chúng; đừng so sánh bằng `=== "published"`, hãy
-   * kiểm `!== "archived"`.
+   * workflow Draft/Publish đã bỏ khỏi Sprint 1.
    */
-  status: "active" | "archived" | "draft" | "published";
+  status: "active" | "archived";
 }
 
 export type DiscountFlag = "yes" | "no";
 
-/** Metadata nhập ở bước "Tạo tài liệu" (mockup Econtract / intake). */
+/** Metadata nhập ở bước "Tạo tài liệu" (intake). */
 export interface DocumentIntakeMeta {
   /** Loại hợp đồng / Contract category (HQP / RAW / MRO / CAP / LOG). */
   documentCategoryId: string;
@@ -502,7 +500,7 @@ export interface StructuredFeedbackItem {
   clauseLabel: string;
   comment: string;
   done: boolean;
-  /** File Legal đính kèm khi reject (mock — chỉ lưu tên). */
+  /** File Legal đính kèm khi reject. */
   attachments?: { name: string; size: number }[];
 }
 
@@ -624,7 +622,7 @@ export interface ContractReview {
   messages: ChatMessage[];
   recipients: SignRecipient[];
   feedback: StructuredFeedbackItem[];
-  /** @deprecated dùng contractInsight — giữ tương thích mock cũ */
+  /** @deprecated dùng contractInsight — giữ để payload cũ không vỡ */
   confidenceDetail: ConfidenceDetail;
   /** Phân tích 4 nhóm + AI confidence / Fairness tách biệt */
   contractInsight: ContractInsight;

@@ -282,19 +282,15 @@ npm install && npm run dev    # http://localhost:8000
 
 # Terminal 2 — Frontend
 cd frontend
-cp .env.example .env.local    # NEXT_PUBLIC_USE_MOCK=true
+cp .env.example .env.local
 npm install && npm run dev    # http://localhost:3001
 ```
 
 Next rewrite `/api/*` → `API_REWRITE_URL` (mặc định `:8000`). Để `NEXT_PUBLIC_API_URL` **trống** trong `.env.local` để dùng rewrite.
 
-| Mode | Env | Hành vi |
-|------|-----|---------|
-| Demo mock | `NEXT_PUBLIC_USE_MOCK=true` | Dữ liệu localStorage; eContract giả lập |
-| Mock + eContract thật | `USE_MOCK=true` + `NEXT_PUBLIC_ECONTRACT_LIVE=true` | Cần `backend/` chạy |
-| Đấu nối BE đầy đủ | `NEXT_PUBLIC_USE_MOCK=false` | Mọi service gọi REST theo [04-api-contract.md](docs/requirements-alignment/04-api-contract.md) |
-
-Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv)
+Frontend **không còn chế độ mock**: mọi dữ liệu nghiệp vụ (hợp đồng, users, checklist,
+Form lists, quy tắc ký, System Prompt) đều đến từ backend. Phải có `backend/` chạy và
+đã `seed` thì UI mới có dữ liệu.
 
 ### Màn hình đã có
 
@@ -314,7 +310,7 @@ Demo: [http://localhost:3001/dashboard/contracts/rev_demo_draft_hddv](http://loc
 | `/dashboard/configurations` | **Form lists** · **Phân quyền ký** · **System prompts** |
 | `/dashboard/users` | Users + Line Manager + tick phân quyền hạng mục |
 
-Mock: `NEXT_PUBLIC_USE_MOCK=true`. Đấu nối BE: `NEXT_PUBLIC_USE_MOCK=false` (+ backend implement contract). eContract / prompts / reupload luôn qua folder **`backend/`**. Spec endpoint: [docs/requirements-alignment/04-api-contract.md](docs/requirements-alignment/04-api-contract.md).
+Mọi service gọi REST tới **`backend/`**. Spec endpoint: [docs/requirements-alignment/04-api-contract.md](docs/requirements-alignment/04-api-contract.md).
 
 ### Tài liệu yêu cầu trong repo
 

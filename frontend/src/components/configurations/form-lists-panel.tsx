@@ -12,15 +12,16 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/components/ui/use-toast";
 import {
-  countFormListItemUsage,
+  getFormListUsage,
   isFormListItemArchived,
   slugId,
   type FormListKind,
+  type FormListUsageMap,
   type FormListsState,
 } from "@/lib/form-lists-store";
 import {
-  defaultFormLists,
   fetchFormLists,
+  fetchFormListUsage,
   persistFormLists,
 } from "@/lib/form-lists-service";
 import {
@@ -28,7 +29,6 @@ import {
   ArchiveRestore,
   ChevronDown,
   Plus,
-  RotateCcw,
   Save,
   Trash2,
 } from "lucide-react";
@@ -347,17 +347,6 @@ type SectionId =
   | "contractBases"
   | "discountOptions";
 
-function withUsage(
-  kind: FormListKind,
-  id: string,
-  archived: boolean
-): Pick<TableRow, "usage" | "archived"> {
-  return {
-    usage: countFormListItemUsage(kind, id),
-    archived,
-  };
-}
-
 export function FormListsPanel() {
   const { toast } = useToast();
   const [state, setState] = useState<FormListsState | null>(null);
@@ -367,6 +356,26 @@ export function FormListsPanel() {
   const [openSections, setOpenSections] = useState<
     Partial<Record<SectionId, boolean>>
   >({});
+  const [usageMap, setUsageMap] = useState<FormListUsageMap | null>(null);
+
+  /**
+   * Số HĐ đang dùng một mục — đọc từ bản đồ backend trả về.
+   *
+   * Trong lúc bản đồ chưa về thì trả 0, tức nút Xoá tạm thời không bị mờ. Không
+   * sao: backend vẫn từ chối xoá mục đang có hợp đồng tham chiếu và thông báo
+   * lỗi được toast lên ở `persist`.
+   */
+  const countFormListItemUsage = (kind: FormListKind, id: string) =>
+    getFormListUsage(usageMap, kind, id);
+
+  const withUsage = (
+    kind: FormListKind,
+    id: string,
+    archived: boolean
+  ): Pick<TableRow, "usage" | "archived"> => ({
+    usage: countFormListItemUsage(kind, id),
+    archived,
+  });
 
   const toggleSection = (id: SectionId) => {
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -378,7 +387,10 @@ export function FormListsPanel() {
 
   useEffect(() => {
     fetchFormLists()
-      .then(setState)
+      .then((next) => {
+        setState(next);
+        void fetchFormListUsage(next).then(setUsageMap);
+      })
       .catch((e) =>
         toast({
           title: "Không tải được Form lists",
@@ -430,21 +442,6 @@ export function FormListsPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            const next = defaultFormLists();
-            persist(next, "Đã khôi phục mặc định");
-          }}
-        >
-          <RotateCcw className="mr-2 h-4 w-4" />
-          Reset mặc định
-        </Button>
-      </div>
-
       <Section
         id="documentCategories"
         title="Loại hợp đồng (Contract category)"
@@ -672,7 +669,7 @@ export function FormListsPanel() {
                   if (index < 0) return;
                   const item = all[index];
                   const contractTypes = all.map((t, i) =>
-                    i === index ? { ...t, status: "published" as const } : t
+                    i === index ? { ...t, status: "active" as const } : t
                   );
                   persist(
                     { ...state, contractTypes },
@@ -718,7 +715,7 @@ export function FormListsPanel() {
                           group: "vendor",
                           requireTemplateMatch: false,
                           hasChecklist: false,
-                          status: "published",
+                          status: "active",
                         },
                       ],
                     });

@@ -638,7 +638,7 @@ def build(path: str) -> None:
     # ---------------- VIII ----------------
     h1(doc, "VIII. FRONTEND")
     table(doc, ["Việc", "Trạng thái hiện tại", "Cần làm"], [
-        ["Kết nối API thật", "Mock qua `localStorage`", "Bật `NEXT_PUBLIC_USE_MOCK=false`, gỡ toàn bộ mock"],
+        ["Kết nối API thật", "Đã gỡ toàn bộ mock `localStorage`", "Hoàn tất — FE chỉ còn gọi REST"],
         ["Hiển thị tài liệu", "`docx-preview`", "Preview read-only + form trường mở (QĐ-2)"],
         ["Lưu", "Autosave mỗi thao tác", "**Lưu thủ công**, cảnh báo khi thoát còn thay đổi chưa lưu"],
         ["Marker", "Click chọn vị trí định sẵn", "**Kéo-thả trên preview**, trả về `paraId` + offset"],

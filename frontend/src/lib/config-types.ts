@@ -179,7 +179,7 @@ export interface ContractTypeConfigVersion {
   version: number;
   /** Bắt buộc khớp template (HĐ khung). */
   requireTemplateMatch: boolean;
-  /** Tên file template mẫu (mock). */
+  /** Tên file template đang gắn cho loại HĐ này. */
   templateFileName?: string;
   /** Checklist điều khoản. */
   clauses: ChecklistClause[];

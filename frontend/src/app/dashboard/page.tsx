@@ -15,8 +15,7 @@ import {
 import { StatusBadge, STATUS_LABEL } from "@/components/review/status-badge";
 import { getSession, listReviews } from "@/lib/review-service";
 import type { ContractReview, ReviewAttachment, ReviewStatus } from "@/lib/types";
-import { sampleUrl } from "@/lib/mock-data";
-import { downloadFile, USE_MOCK } from "@/lib/api";
+import { downloadFile } from "@/lib/api";
 import {
   canAccessConfig,
   canAccessConfigurations,
@@ -104,15 +103,6 @@ function fieldLabel(key: FilterFieldKey) {
   return FILTER_FIELDS.find((f) => f.key === key)?.label || key;
 }
 
-/**
- * `/samples/*.docx` là dữ liệu mock tĩnh. Ở live mode nó không tồn tại, nên
- * fallback sang đó chỉ đổi một link thiếu thành một link 404 — thà không có
- * link để UI hiện "—" còn hơn.
- */
-function mockFallbackUrl(fileName: string): string | undefined {
-  return USE_MOCK ? sampleUrl(fileName) : undefined;
-}
-
 function reviewAttachment(r: ContractReview): ReviewAttachment | null {
   if (r.attachments?.[0]) return r.attachments[0];
   const name = r.fileName || r.fileNames?.[0];
@@ -120,8 +110,7 @@ function reviewAttachment(r: ContractReview): ReviewAttachment | null {
   return {
     id: "review",
     fileName: name || "document.docx",
-    originalDocxUrl:
-      r.originalDocxUrl || (name ? mockFallbackUrl(name) : undefined),
+    originalDocxUrl: r.originalDocxUrl,
     reviewedDocxUrl: r.reviewedDocxUrl || r.originalDocxUrl,
   };
 }
@@ -134,7 +123,6 @@ function referenceAttachments(r: ContractReview): ReviewAttachment[] {
   return names.map((name, i) => ({
     id: `ref_${i}`,
     fileName: name,
-    originalDocxUrl: mockFallbackUrl(name),
   }));
 }
 
@@ -145,17 +133,16 @@ function FileDownloadLinks({
   files: { name: string; url?: string }[];
   empty?: string;
 }) {
-  const linkable = files.filter((f) => f.url || USE_MOCK);
+  const linkable = files.filter((f) => f.url);
   if (!linkable.length) {
     return <span className="text-muted-foreground">{empty}</span>;
   }
   return (
     <ul className="space-y-1 max-w-[240px]">
       {linkable.map((f, i) => {
-        const href = f.url || sampleUrl(f.name);
+        const href = f.url as string;
         // File của backend đi qua endpoint kiểm quyền bằng Bearer token, mà
-        // `<a href>` không gửi được header → 401. Chỉ `/samples/*` (mock) mới
-        // là file tĩnh tải thẳng được.
+        // `<a href>` không gửi được header → 401, nên phải tải bằng fetch.
         const needsAuth = href.startsWith("/api/");
         return (
           <li key={`${f.name}-${i}`}>

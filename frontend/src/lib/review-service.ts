@@ -1,28 +1,11 @@
-import { api, ApiError, fetchBinary, ECONTRACT_LIVE, USE_MOCK } from "@/lib/api";
-import {
-  loadFormLists,
-  type CodeLabelOption,
-  type ContractNameOption,
-  type DiscountOption,
+import { api, ApiError, fetchBinary } from "@/lib/api";
+import type {
+  CodeLabelOption,
+  ContractNameOption,
+  DiscountOption,
 } from "@/lib/form-lists-store";
-import {
-  allocateDocumentNumber,
-  parseDocumentNumber,
-  syncDocSeqFromReviews,
-} from "@/lib/document-number";
-import {
-  CONTRACT_TYPES,
-  buildAttachments,
-  createMockReview,
-  getReview,
-  loadReviews,
-  nextDocumentId,
-  resolveTemplateUrlForContractType,
-  upsertReview,
-} from "@/lib/mock-data";
 import { defaultPermissionsForRole } from "@/lib/permissions";
 import type {
-  ChatMessage,
   ContractReview,
   ContractTypeConfig,
   ContractVersionAction,
@@ -38,34 +21,18 @@ import type {
   MarkerAnchor,
   MarkerIssue,
   ReviewStatusEvent,
-  MarkerType,
   SignRecipient,
   StructuredFeedbackItem,
   TemplateLintResult,
   UserSession,
 } from "@/lib/types";
 
-function resolveContractType(id: string): ContractTypeConfig | undefined {
-  const fromStore = loadFormLists().contractTypes.find((t) => t.id === id);
-  return fromStore || CONTRACT_TYPES.find((t) => t.id === id);
-}
-import {
-  buildDefaultContractInsight,
-  bumpContractInsight,
-  computeFairnessScore,
-  emptyContractInsight,
-} from "@/lib/contract-insight";
 import {
   ReuploadValidationError,
   formatIssueMessage,
-  validateReuploadFromBuffers,
   type FieldStructureIssue,
   type ReuploadValidationResult,
 } from "@/lib/reupload-validation";
-
-function delay(ms = 400) {
-  return new Promise((r) => setTimeout(r, ms));
-}
 
 export function getSession(): UserSession | null {
   if (typeof window === "undefined") return null;
@@ -133,21 +100,6 @@ export async function loginWithCredentials(
   username: string,
   password: string
 ): Promise<UserSession> {
-  if (USE_MOCK) {
-    await delay(300);
-    const { getUserByUsername, toSession } = await import("@/lib/user-store");
-    const account = getUserByUsername(username);
-    if (!account || account.password !== password) {
-      throw new Error("Sai tài khoản hoặc mật khẩu");
-    }
-    if (!account.active) {
-      throw new Error("Tài khoản đang bị khoá. Liên hệ IT.");
-    }
-    const session = toSession(account);
-    setSession(session);
-    setEcontractUserLogin(account.username, password);
-    return session;
-  }
   const user = (await api.post(
     "/api/v1/auth/login",
     { username, password },
@@ -163,13 +115,6 @@ export async function changeOwnPassword(
   oldPassword: string,
   newPassword: string
 ): Promise<void> {
-  if (USE_MOCK) {
-    await delay(200);
-    const { changePassword } = await import("@/lib/user-store");
-    changePassword(username, oldPassword, newPassword);
-    setEcontractUserLogin(username, newPassword);
-    return;
-  }
   await api.post("/api/v1/auth/change-password", {
     username,
     oldPassword,
@@ -180,102 +125,34 @@ export async function changeOwnPassword(
 
 /** Options cho field "Loại giá trị hợp đồng (Contract value type)" — Form lists cùng tên. */
 export async function listContractTypes(): Promise<ContractTypeConfig[]> {
-  if (USE_MOCK) {
-    await delay(150);
-    return loadFormLists().contractTypes.filter(
-      (t) => t.label.trim() && t.id.trim() && t.status !== "archived"
-    );
-  }
   return api.get("/api/v1/contract-types");
 }
 
 export async function listDocumentCategories(): Promise<DocumentCategory[]> {
-  if (USE_MOCK) {
-    await delay(100);
-    return loadFormLists().documentCategories.filter(
-      (c) => c.status !== "archived"
-    );
-  }
   return api.get("/api/v1/document-categories");
 }
 
 export async function listDiscountOptions(): Promise<DiscountOption[]> {
-  if (USE_MOCK) {
-    await delay(50);
-    return loadFormLists().discountOptions;
-  }
   return api.get("/api/v1/discount-options");
 }
 
 export async function listBusinessEntities(): Promise<CodeLabelOption[]> {
-  if (USE_MOCK) {
-    await delay(50);
-    return loadFormLists().businessEntities.filter(
-      (e) => e.status !== "archived"
-    );
-  }
   return api.get("/api/v1/business-entities");
 }
 
 export async function listContractBases(): Promise<CodeLabelOption[]> {
-  if (USE_MOCK) {
-    await delay(50);
-    return loadFormLists().contractBases.filter(
-      (b) => b.status !== "archived"
-    );
-  }
   return api.get("/api/v1/contract-bases");
 }
 
 export async function listContractNames(): Promise<ContractNameOption[]> {
-  if (USE_MOCK) {
-    await delay(50);
-    return loadFormLists().contractNames.filter(
-      (n) => n.status !== "archived"
-    );
-  }
   return api.get("/api/v1/contract-names");
 }
 
 export async function listReviews(): Promise<ContractReview[]> {
-  if (USE_MOCK) {
-    await delay(200);
-    const session = getSession();
-    const all = loadReviews();
-    if (!session) return all;
-    if (session.role === "purchasing") {
-      return all.filter(
-        (r) =>
-          r.ownerId === session.userId ||
-          (!r.ownerId &&
-            (r.ownerName.includes(session.name) ||
-              r.ownerName.includes(session.username)))
-      );
-    }
-    if (session.role === "purchasing_manager") {
-      const { subordinateIds } = await import("@/lib/user-store");
-      const subs = new Set(subordinateIds(session.userId));
-      return all.filter(
-        (r) =>
-          r.ownerId === session.userId ||
-          (r.ownerId && subs.has(r.ownerId)) ||
-          (!r.ownerId &&
-            (r.ownerName.includes(session.name) ||
-              r.ownerName.includes(session.username)))
-      );
-    }
-    return all;
-  }
   return api.get("/api/v1/reviews");
 }
 
 export async function getReviewById(id: string): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(150);
-    const review = getReview(id);
-    if (!review) throw new Error("Không tìm thấy yêu cầu review");
-    return review;
-  }
   return api.get(`/api/v1/reviews/${id}`);
 }
 
@@ -305,7 +182,7 @@ export async function createReview(input: {
    */
   kind?: "full" | "quick";
 }): Promise<ContractReview> {
-  if (input.fromTemplate && !USE_MOCK) {
+  if (input.fromTemplate) {
     const form = new FormData();
     form.append("contract_type_id", input.contractTypeId);
     form.append("title", input.title);
@@ -323,113 +200,6 @@ export async function createReview(input: {
   }
   const primary = input.files[0];
   const references = input.referenceFiles || [];
-  const allNames = [primary.name, ...references.map((f) => f.name)];
-
-  if (USE_MOCK) {
-    await delay(500);
-    const type = resolveContractType(input.contractTypeId);
-    if (!type) throw new Error("Loại hợp đồng không hợp lệ");
-
-    // Không so khớp nội dung file review với template loại HĐ khi tạo / upload.
-
-    const session = getSession();
-    const valueNum = Number(String(input.intake.contractValue).replace(/\D/g, "")) || 0;
-    const refNote =
-      references.length > 0
-        ? ` · ${references.length} file tham khảo`
-        : "";
-    const existing = loadReviews();
-    syncDocSeqFromReviews(existing);
-
-    const lists = loadFormLists();
-    const entity = lists.businessEntities.find(
-      (e) => e.id === input.intake.businessEntityId
-    );
-    const category = lists.documentCategories.find(
-      (c) => c.id === input.intake.documentCategoryId
-    );
-    if (!entity?.code || !category?.code) {
-      throw new Error("Thiếu Công ty hoặc Loại hợp đồng để sinh Số tài liệu");
-    }
-    const documentNumber = allocateDocumentNumber(entity.code, category.code);
-    const intake: DocumentIntakeMeta = {
-      ...input.intake,
-      documentNumber,
-    };
-
-    const review = createMockReview({
-      id: `rev_${Date.now()}`,
-      documentId: nextDocumentId(existing),
-      code: documentNumber,
-      title:
-        intake.documentName ||
-        input.title ||
-        primary.name.replace(/\.docx$/i, ""),
-      contractTypeId: type.id,
-      contractTypeLabel: type.label,
-      group: type.group,
-      status: "queued",
-      queuePosition: 2,
-      fileName: primary.name,
-      fileNames: allNames,
-      attachments: buildAttachments({
-        fileName: primary.name,
-        fileNames: allNames,
-        originalDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
-        reviewedDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
-      }),
-      originalDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
-      reviewedDocxUrl: "/samples/Template_HDDV_chung_2026.docx",
-      prompt: input.prompt || "",
-      ownerName: session?.name || "Purchasing",
-      ownerId: session?.userId,
-      confidence: 0,
-      proposals: [],
-      intake,
-      fields: [
-        {
-          id: "contract_value",
-          label: "Giá trị hợp đồng (VND)",
-          type: "number",
-          value: String(valueNum || input.intake.contractValue),
-          locked: false,
-        },
-        {
-          id: "payment_days",
-          label: "Thời hạn thanh toán (ngày)",
-          type: "number",
-          value: "60",
-          locked: false,
-        },
-        {
-          id: "effective_date",
-          label: "Ngày ký",
-          type: "date",
-          value: input.intake.signingDate || "",
-          locked: false,
-        },
-        {
-          id: "has_discount",
-          label: "Hợp đồng có chiết khấu",
-          type: "select",
-          value: input.intake.hasDiscount === "yes" ? "Có" : "Không",
-          options: ["Có", "Không"],
-          locked: false,
-        },
-      ],
-      messages: [
-        {
-          id: `m_${Date.now()}`,
-          role: "assistant",
-          content: `Yêu cầu đã vào Processing Queue (1 file review${refNote}). Local LLM sẽ xử lý sớm.`,
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      reviewedText: "",
-    });
-    upsertReview(review);
-    return review;
-  }
 
   const form = new FormData();
   form.append("contract_type_id", input.contractTypeId);
@@ -528,50 +298,6 @@ export async function createQuickReview(input: {
 }
 
 export async function advanceQueue(id: string): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(800);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    if (review.status === "queued") {
-      review.status = "processing";
-      review.queuePosition = 0;
-      review.updatedAt = new Date().toISOString();
-      upsertReview(review);
-      return review;
-    }
-    if (review.status === "processing") {
-      const confidence = review.confidence || 72;
-      const done = createMockReview({
-        ...review,
-        status: "reviewed",
-        confidence,
-        queuePosition: undefined,
-        // Rỗng → dùng SAMPLE_REVIEWED + đề xuất demo mặc định
-        reviewedText: review.reviewedText || undefined,
-        proposals: review.proposals?.length ? review.proposals : undefined,
-        messages: [
-          ...(review.messages || []),
-          {
-            id: `m_${Date.now()}`,
-            role: "assistant",
-            content:
-              "Đã hoàn tất review theo checklist. Có đề xuất Loại A (có thể accept) và cảnh báo Loại B trên vùng khoá — xem panel tài liệu bên phải.",
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        updatedAt: new Date().toISOString(),
-        contractInsight: buildDefaultContractInsight({
-          contractId: review.id,
-          contractName: review.title,
-          aiConfidenceScore: confidence,
-          lastUpdatedAt: new Date().toISOString(),
-        }),
-      });
-      upsertReview(done);
-      return done;
-    }
-    return review;
-  }
   return api.get(`/api/v1/reviews/${id}`);
 }
 
@@ -586,63 +312,6 @@ export async function updateReviewIntake(
   /** `review.rowVersion` đọc được lúc mở màn — chặn ghi đè khi có tab khác. */
   rowVersion?: number
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(250);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const type = resolveContractType(input.contractTypeId);
-    if (!type) throw new Error("Loại hợp đồng không hợp lệ");
-
-    let intake = input.intake;
-    // Số tài liệu đã cấp thì giữ nguyên; nháp chưa có số → cấp mới (không cho user sửa).
-    if (!parseDocumentNumber(intake.documentNumber)) {
-      const lists = loadFormLists();
-      const entity = lists.businessEntities.find(
-        (e) => e.id === intake.businessEntityId
-      );
-      const category = lists.documentCategories.find(
-        (c) => c.id === intake.documentCategoryId
-      );
-      if (entity?.code && category?.code) {
-        syncDocSeqFromReviews(loadReviews());
-        intake = {
-          ...intake,
-          documentNumber: allocateDocumentNumber(entity.code, category.code),
-        };
-      }
-    }
-    review.intake = intake;
-    review.contractTypeId = type.id;
-    review.contractTypeLabel = type.label;
-    review.group = type.group;
-    review.title = intake.documentName || review.title;
-    if (intake.documentNumber) {
-      review.code = intake.documentNumber;
-    }
-    if (input.prompt !== undefined) {
-      review.prompt = input.prompt;
-    }
-    const valueNum =
-      Number(String(input.intake.contractValue).replace(/\D/g, "")) || 0;
-    review.fields = review.fields.map((f) => {
-      if (f.id === "contract_value") {
-        return { ...f, value: String(valueNum || input.intake.contractValue) };
-      }
-      if (f.id === "effective_date") {
-        return { ...f, value: input.intake.signingDate || "" };
-      }
-      if (f.id === "has_discount") {
-        return {
-          ...f,
-          value: input.intake.hasDiscount === "yes" ? "Có" : "Không",
-        };
-      }
-      return f;
-    });
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.patch(`/api/v1/reviews/${id}/intake`, input, {
     ifMatch: rowVersion,
   });
@@ -650,31 +319,6 @@ export async function updateReviewIntake(
 
 /** Nháp → đưa vào Processing Queue để AI review. */
 export async function submitDraftToQueue(id: string): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(300);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    if (review.status !== "draft") {
-      throw new Error("Chỉ gửi AI review từ trạng thái nháp");
-    }
-    review.status = "queued";
-    review.queuePosition = 1;
-    review.updatedAt = new Date().toISOString();
-    if (!review.reviewedText) {
-      review.reviewedText = review.originalText;
-    }
-    review.messages = [
-      ...review.messages,
-      {
-        id: `m_q_${Date.now()}`,
-        role: "assistant",
-        content: "Đã nhận bản nháp — đưa vào Processing Queue.",
-        createdAt: new Date().toISOString(),
-      },
-    ];
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/retry-ai`);
 }
 
@@ -683,36 +327,12 @@ export async function submitDraftToQueue(id: string): Promise<ContractReview> {
  *
  * Backend trả nguyên `ContractReview` chứ không trả `{review, reply}` — FE thay
  * hẳn state bằng object này sau mỗi mutation, nên endpoint nào sửa ticket cũng
- * trả bản đầy đủ. Bản mock dựng lại cùng hình dạng để hai nhánh dùng chung.
+ * trả bản đầy đủ.
  */
 export async function sendChat(
   id: string,
   content: string
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(600);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const userMsg: ChatMessage = {
-      id: `m_u_${Date.now()}`,
-      role: "user",
-      content,
-      createdAt: new Date().toISOString(),
-    };
-    const reply: ChatMessage = {
-      id: `m_a_${Date.now()}`,
-      role: "assistant",
-      content: `Đã cập nhật đề xuất theo yêu cầu: "${content.slice(0, 120)}". Diff cột 3 đã được làm mới (mock).`,
-      createdAt: new Date().toISOString(),
-    };
-    review.messages = [...review.messages, userMsg, reply];
-    review.reviewedText =
-      review.reviewedText +
-      `\n\n[Chat update] ${content.slice(0, 80)}`;
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/chat`, { content });
 }
 
@@ -721,68 +341,14 @@ export async function updateProposalStatus(
   proposalId: string,
   status: "accepted" | "undone" | "rejected"
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(200);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const proposal = review.proposals.find((p) => p.id === proposalId);
-    if (!proposal || proposal.kind !== "A") {
-      throw new Error("Chỉ Accept/Undo được đề xuất Loại A (field mở)");
-    }
-
-    let text = review.reviewedText || review.originalText;
-    if (status === "accepted") {
-      // Ensure proposed text is present (already in reviewed for mock)
-      if (proposal.originalText && text.includes(proposal.originalText)) {
-        text = text.replace(proposal.originalText, proposal.proposedText);
-      }
-    } else {
-      // Undo → revert proposed back to original in reviewed text
-      if (proposal.proposedText && text.includes(proposal.proposedText)) {
-        text = text.replace(proposal.proposedText, proposal.originalText);
-      }
-    }
-
-    review.reviewedText = text;
-    review.proposals = review.proposals.map((p) =>
-      p.id === proposalId
-        ? { ...p, status: status === "accepted" ? "accepted" : "pending" }
-        : p
-    );
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/proposals/${proposalId}`, { status });
 }
 
 export async function acceptAllProposals(id: string): Promise<ContractReview> {
-  if (USE_MOCK) {
-    let review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const pending = review.proposals.filter(
-      (p) => p.kind === "A" && p.status === "pending"
-    );
-    for (const p of pending) {
-      review = await updateProposalStatus(id, p.id, "accepted");
-    }
-    return getReview(id)!;
-  }
   return api.post(`/api/v1/reviews/${id}/proposals/accept-all`);
 }
 
 export async function undoAllProposals(id: string): Promise<ContractReview> {
-  if (USE_MOCK) {
-    let review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const accepted = review.proposals.filter(
-      (p) => p.kind === "A" && p.status === "accepted"
-    );
-    for (const p of accepted) {
-      review = await updateProposalStatus(id, p.id, "undone");
-    }
-    return getReview(id)!;
-  }
   return api.post(`/api/v1/reviews/${id}/proposals/undo-all`);
 }
 
@@ -791,37 +357,6 @@ export async function updateReviewedDocument(
   id: string,
   plainText: string
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(200);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    review.reviewedText = plainText;
-    review.updatedAt = new Date().toISOString();
-    review.confidence = Math.min(95, (review.confidence || 70) + 1);
-    review.confidenceDetail = {
-      ...review.confidenceDetail,
-      score: review.confidence,
-      recentFieldChanges: [
-        {
-          fieldId: "document_body",
-          label: "Nội dung tài liệu (chỉnh trên Word)",
-          oldValue: "(trước chỉnh sửa)",
-          newValue: plainText.slice(0, 120),
-        },
-      ],
-    };
-    review.contractInsight = bumpContractInsight(
-      review.contractInsight ||
-        buildDefaultContractInsight({
-          contractId: review.id,
-          contractName: review.title,
-          aiConfidenceScore: review.confidence,
-        }),
-      { aiConfidenceScore: review.confidence }
-    );
-    upsertReview(review);
-    return review;
-  }
   // Backend KHÔNG có endpoint ghi toàn văn bản: nhận cả tài liệu làm payload thì
   // không thể biết phần nào người dùng được phép sửa — phá vỡ mô hình vùng khoá.
   // Ghi phải đi qua saveFields(), định vị bằng permId.
@@ -837,50 +372,6 @@ export async function updateReviewedSection(
   sectionIndex: number,
   nextBody: string
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(150);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const blocks = (review.reviewedText || review.originalText)
-      .trim()
-      .split(/\n\s*\n/);
-    if (sectionIndex < 0 || sectionIndex >= blocks.length) {
-      throw new Error("Section không hợp lệ");
-    }
-    const lines = blocks[sectionIndex].split("\n");
-    const first = lines[0] || "";
-    const isHeading = /^ĐIỀU\s+\d+/i.test(first);
-    blocks[sectionIndex] = isHeading && lines.length > 1
-      ? `${first}\n${nextBody}`
-      : nextBody;
-    review.reviewedText = blocks.join("\n\n");
-    review.updatedAt = new Date().toISOString();
-    // Soft bump confidence when user edits open fields
-    review.confidence = Math.min(95, (review.confidence || 70) + 1);
-    review.confidenceDetail = {
-      ...review.confidenceDetail,
-      score: review.confidence,
-      recentFieldChanges: [
-        {
-          fieldId: `section_${sectionIndex}`,
-          label: `Đoạn ${sectionIndex + 1}`,
-          oldValue: "(trước chỉnh sửa)",
-          newValue: nextBody.slice(0, 80),
-        },
-      ],
-    };
-    review.contractInsight = bumpContractInsight(
-      review.contractInsight ||
-        buildDefaultContractInsight({
-          contractId: review.id,
-          contractName: review.title,
-          aiConfidenceScore: review.confidence,
-        }),
-      { aiConfidenceScore: review.confidence }
-    );
-    upsertReview(review);
-    return review;
-  }
   // Định vị bằng số thứ tự đoạn không sống sót qua các vòng sửa.
   // Backend định vị bằng permId của vùng mở.
   void sectionIndex;
@@ -896,95 +387,6 @@ export async function saveFields(
   /** `review.rowVersion` đọc được lúc mở màn — chặn ghi đè khi có tab khác. */
   rowVersion?: number
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(300);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-
-    const merged = fields.map((f) => {
-      const old = review.fields.find((x) => x.id === f.id);
-      if (old?.locked || f.locked) {
-        return { ...f, locked: true, value: old?.value ?? f.value };
-      }
-      return f;
-    });
-
-    const changes = merged
-      .map((f) => {
-        const old = review.fields.find((x) => x.id === f.id);
-        if (!old || old.value === f.value || old.locked) return null;
-        return {
-          fieldId: f.id,
-          label: f.label,
-          oldValue: old.value,
-          newValue: f.value,
-        };
-      })
-      .filter(Boolean) as NonNullable<
-      ContractReview["confidenceDetail"]["recentFieldChanges"][number]
-    >[];
-
-    review.fields = merged;
-    const value = Number(fields.find((f) => f.id === "contract_value")?.value || 0);
-    let score = 72;
-    let warning: string | undefined;
-    if (value > 5_000_000_000) {
-      score = 58;
-      warning =
-        "Giá trị hợp đồng vượt hạn mức Director — theo Approval Matrix cần cấp BOD (cảnh báo, không routing).";
-    } else if (value > 1_000_000_000) {
-      score = 72;
-    } else {
-      score = 85;
-    }
-    review.confidence = score;
-    review.confidenceDetail = {
-      ...review.confidenceDetail,
-      score,
-      recentFieldChanges: changes,
-      approvalMatrixWarning: warning,
-      cons: warning
-        ? [...review.confidenceDetail.cons.filter((c) => !c.includes("hạn mức")), warning]
-        : review.confidenceDetail.cons.filter((c) => !c.includes("hạn mức")),
-    };
-    const baseInsight =
-      review.contractInsight ||
-      buildDefaultContractInsight({
-        contractId: review.id,
-        contractName: review.title,
-        aiConfidenceScore: score,
-      });
-    review.contractInsight = bumpContractInsight(baseInsight, {
-      aiConfidenceScore: score,
-      extraWarning: warning
-        ? {
-            id: "WN-MATRIX",
-            title: "Vượt hạn mức Approval Matrix",
-            description: warning,
-            severity: "high",
-            relatedFieldId: "contract_value",
-          }
-        : undefined,
-    });
-    if (!warning) {
-      review.contractInsight = {
-        ...review.contractInsight,
-        groups: {
-          ...review.contractInsight.groups,
-          warnings: review.contractInsight.groups.warnings.filter(
-            (w) => w.id !== "WN-MATRIX"
-          ),
-        },
-      };
-      review.contractInsight = {
-        ...review.contractInsight,
-        fairnessScore: computeFairnessScore(review.contractInsight.groups),
-      };
-    }
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.put(`/api/v1/reviews/${id}/fields`, { fields }, { ifMatch: rowVersion });
 }
 
@@ -1012,28 +414,6 @@ export async function updateRecipient(
   recipientId: string,
   patch: Partial<SignRecipient>
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(150);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    review.recipients = review.recipients.map((r) => {
-      if (r.id !== recipientId) return r;
-      const next = { ...r, ...patch };
-      // Đổi hình thức ký → cập nhật loại marker và gỡ marker cũ nếu lệch loại
-      if (patch.signType && next.markerType !== "st") {
-        const mt = markerTypeForSignType(patch.signType);
-        if (mt) next.markerType = mt;
-        if (next.marker && (!mt || next.marker.type !== mt)) {
-          next.marker = undefined;
-        }
-        if (!mt) next.marker = undefined;
-      }
-      return next;
-    });
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.patch(`/api/v1/reviews/${id}/recipients/${recipientId}`, patch);
 }
 
@@ -1075,26 +455,6 @@ function pushVersionEntry(
 }
 
 export async function submitToLegal(id: string): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(300);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    // Marker kéo-thả thực hiện SAU Legal approve — không chặn Submit.
-    const session = getSession();
-    // Có Line Manager → chờ Purchasing Manager; không có → thẳng Legal
-    const { getUserById } = await import("@/lib/user-store");
-    const owner = review.ownerId ? getUserById(review.ownerId) : undefined;
-    const hasManager = Boolean(owner?.lineManagerId);
-    review.status = hasManager ? "pending_manager" : "pending_legal";
-    const isFirstSubmit = !(review.versionHistory?.length ?? 0);
-    pushVersionEntry(review, isFirstSubmit ? "submit_legal" : "resubmit", {
-      role: "purchasing",
-      name: session?.name || review.ownerName,
-    });
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/submit`);
 }
 
@@ -1104,40 +464,6 @@ export async function managerDecide(
   decision: "approve" | "reject",
   comment = ""
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(350);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    if (review.status !== "pending_manager") {
-      throw new Error("Ticket không ở trạng thái chờ Manager duyệt");
-    }
-    const session = getSession();
-    if (decision === "reject") {
-      if (!comment.trim()) throw new Error("Cần comment khi từ chối");
-      review.status = "rejected";
-      review.feedback = [
-        {
-          id: `fb_${Date.now()}`,
-          clauseLabel: "Purchasing Manager feedback",
-          comment: comment.trim(),
-          done: false,
-        },
-      ];
-      pushVersionEntry(review, "legal_reject", {
-        role: "purchasing",
-        name: session?.name || "Purchasing Manager",
-      });
-    } else {
-      review.status = "pending_legal";
-      pushVersionEntry(review, "resubmit", {
-        role: "purchasing",
-        name: session?.name || "Purchasing Manager",
-      });
-    }
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/manager-decide`, { decision, comment });
 }
 
@@ -1146,52 +472,6 @@ export async function legalDecide(
   decision: "approve" | "reject",
   feedback: StructuredFeedbackItem[] = []
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(400);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    if (decision === "reject") {
-      review.status = "rejected";
-      review.feedback = feedback;
-      const session = getSession();
-      pushVersionEntry(
-        review,
-        "legal_reject",
-        { role: "legal", name: session?.name || "Trần Thị Legal" },
-        { feedback }
-      );
-    } else {
-      // Legal duyệt → trả ticket cho người tạo gán vị trí chữ ký (kéo-thả).
-      const {
-        assertSigningMatrixReady,
-        mergeCompanyRecipientsFromMatrix,
-        resolveSigningRecipients,
-      } = await import("@/lib/config-service");
-      assertSigningMatrixReady(review);
-      try {
-        const orgName =
-          review.recipients.find((r) => r.isMyOrg)?.orgName ||
-          review.intake?.businessEntityLabel ||
-          "Công ty SGVN";
-        const resolved = resolveSigningRecipients(
-          review.intake!.documentCategoryId,
-          review.intake!.contractValue,
-          orgName,
-          review.intake?.businessEntityId
-        );
-        review.recipients = mergeCompanyRecipientsFromMatrix(
-          review.recipients,
-          resolved.companyRecipients
-        );
-      } catch {
-        /* matrix assert đã chạy — giữ recipients nếu merge lỗi */
-      }
-      review.status = "pending_markers";
-    }
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/legal-decision`, { decision, feedback });
 }
 
@@ -1202,21 +482,6 @@ export async function saveSigningRecipients(
   id: string,
   recipients: SignRecipient[]
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(120);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    if (review.status !== "pending_markers") {
-      throw new Error("Ticket không ở trạng thái chờ gán chữ ký");
-    }
-    const cleaned = recipients.filter((r) => r.name !== "__party_shell__");
-    const idErrors = validateIdentifySigners(cleaned);
-    if (idErrors.length) throw new Error(idErrors[0]);
-    review.recipients = normalizeSigningFlow(cleaned);
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.put(`/api/v1/reviews/${id}/recipients`, { recipients });
 }
 
@@ -1233,7 +498,7 @@ export async function saveSigningRecipients(
 export async function completeMarkersAndPushEcontract(
   id: string
 ): Promise<ContractReview> {
-  const review = USE_MOCK ? getReview(id) : await getReviewById(id);
+  const review = await getReviewById(id);
   if (!review) throw new Error("Not found");
   if (review.status !== "pending_markers") {
     throw new Error("Ticket không ở trạng thái chờ gán chữ ký");
@@ -1241,50 +506,12 @@ export async function completeMarkersAndPushEcontract(
   const errors = validateMarkers(review.recipients);
   if (errors.length) throw new Error(errors[0]);
   const { assertSigningMatrixReady } = await import("@/lib/config-service");
-  assertSigningMatrixReady(review);
-
-  const useLivePush = !USE_MOCK || ECONTRACT_LIVE;
-
-  if (!useLivePush) {
-    await delay(600);
-    const latest = getReview(id);
-    if (!latest) throw new Error("Not found");
-    latest.status = "syncing_econtract";
-    latest.econtract = {
-      envelopeId: `MOCK-ENV-${Date.now()}`,
-      envStatus: "Processing",
-      code: 0,
-      message: "Mock push — bật NEXT_PUBLIC_ECONTRACT_LIVE=true để gọi BE thật",
-      pushedAt: new Date().toISOString(),
-      fileMode: "pdf",
-    };
-    latest.updatedAt = new Date().toISOString();
-    upsertReview(latest);
-    setTimeout(() => {
-      const r = getReview(id);
-      if (r && r.status === "syncing_econtract") {
-        r.status = "signed";
-        if (r.econtract) r.econtract.envStatus = "Completed";
-        r.updatedAt = new Date().toISOString();
-        upsertReview(r);
-      }
-    }, 2500);
-    return latest;
-  }
+  await assertSigningMatrixReady(review);
 
   const data = (await api.post(
     `/api/v1/reviews/${id}/econtract/push`
   )) as ContractReview & { econtractQueued?: boolean; isMock?: boolean };
 
-  if (USE_MOCK) {
-    const latest = getReview(id);
-    if (!latest) throw new Error("Not found");
-    latest.status = data.status ?? "syncing_econtract";
-    latest.econtract = data.econtract;
-    latest.updatedAt = new Date().toISOString();
-    upsertReview(latest);
-    return latest;
-  }
 
   return data;
 }
@@ -1390,10 +617,6 @@ export async function getActiveTemplate(contractNameId: string): Promise<{
  * kèm lý do chứ không im lặng.
  */
 export async function listComments(id: string): Promise<CommentThread[]> {
-  if (USE_MOCK) {
-    await delay(80);
-    return [];
-  }
   return api.get(`/api/v1/reviews/${id}/comments`);
 }
 
@@ -1446,7 +669,7 @@ export function watchReviewStatus(
     onError?: (message: string) => void;
   }
 ): () => void {
-  if (USE_MOCK || typeof window === "undefined") return () => undefined;
+  if (typeof window === "undefined") return () => undefined;
 
   const controller = new AbortController();
 
@@ -1507,10 +730,6 @@ export async function getMarkerAnchors(
   id: string,
   opts?: { recommendedOnly?: boolean }
 ): Promise<MarkerAnchor[]> {
-  if (USE_MOCK) {
-    await delay(80);
-    return [];
-  }
   const query = opts?.recommendedOnly ? "?recommended_only=true" : "";
   const body = (await api.get(
     `/api/v1/reviews/${id}/marker-anchors${query}`
@@ -1543,56 +762,6 @@ export async function placeMarkerOnDocument(
     signType?: EcontractSignType;
   }
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    await delay(120);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const target = review.recipients.find((r) => r.id === recipientId);
-    if (!target) throw new Error("Không tìm thấy người nhận");
-    if (!recipientNeedsMarker(target)) {
-      throw new Error(
-        `${target.name} không cần marker (chỉ Người ký / Văn thư)`
-      );
-    }
-    const signType =
-      placement.signType || target.signType || "sign_fca.passcode";
-    const mt = markerTypeForSignType(signType as EcontractSignType);
-    if (!mt) throw new Error("Hình thức ký không hợp lệ cho marker");
-    const sizePreset =
-      placement.sizePreset || target.marker?.sizePreset || "default";
-    const height =
-      placement.height ??
-      target.marker?.height ??
-      (sizePreset === "large" ? 140 : 98);
-    const width =
-      placement.width ??
-      target.marker?.width ??
-      (sizePreset === "large" ? 220 : 164);
-    review.recipients = review.recipients.map((r) =>
-      r.id !== recipientId
-        ? r
-        : {
-            ...r,
-            signType,
-            markerType: mt,
-            marker: {
-              id: `${mt}_${r.id}`,
-              type: mt,
-              height,
-              width,
-              sizePreset,
-              positionLabel: placement.anchor.paraId,
-              paraId: placement.anchor.paraId,
-              align: placement.anchor.align ?? "center",
-              position: placement.anchor.position ?? "after",
-              approximated: !placement.anchor.paraId,
-            },
-          }
-    );
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
-  }
   return api.post(`/api/v1/reviews/${id}/markers/place`, {
     recipientId,
     ...placement,
@@ -1604,9 +773,6 @@ export async function removeMarker(
   id: string,
   recipientId: string
 ): Promise<ContractReview> {
-  if (USE_MOCK) {
-    return updateRecipient(id, recipientId, { marker: undefined });
-  }
   return api.delete(`/api/v1/reviews/${id}/markers/${recipientId}`);
 }
 
@@ -1614,15 +780,6 @@ export async function removeMarker(
 export async function validateMarkersOnServer(
   id: string
 ): Promise<MarkerIssue[]> {
-  if (USE_MOCK) {
-    const review = getReview(id);
-    return review
-      ? validateMarkers(review.recipients).map((message) => ({
-          code: "validation",
-          message,
-        }))
-      : [];
-  }
   const body = (await api.get(`/api/v1/reviews/${id}/markers/validate`)) as {
     ok: boolean;
     issues: MarkerIssue[];
@@ -1637,53 +794,9 @@ export async function validateMarkersOnServer(
 export async function applySigningMatrix(
   id: string
 ): Promise<{ review: ContractReview; bandLabel: string }> {
-  const {
-    mergeCompanyRecipientsFromMatrix,
-    resolveSigningRecipients,
-  } = await import("@/lib/config-service");
-
-  if (USE_MOCK) {
-    await delay(200);
-    const review = getReview(id);
-    if (!review) throw new Error("Not found");
-    const parentId = review.intake?.documentCategoryId;
-    const value = review.intake?.contractValue;
-    if (!parentId) {
-      throw new Error("Thiếu Loại HĐ trên intake — không áp dụng ma trận ký");
-    }
-    if (value == null || String(value).trim() === "") {
-      throw new Error("Thiếu Giá trị HĐ trên intake — không áp dụng ma trận ký");
-    }
-    const orgName =
-      review.recipients.find((r) => r.isMyOrg)?.orgName ||
-      review.intake?.businessEntityLabel ||
-      "Công ty SGVN";
-    const resolved = resolveSigningRecipients(
-      parentId,
-      value,
-      orgName,
-      review.intake?.businessEntityId
-    );
-    review.recipients = mergeCompanyRecipientsFromMatrix(
-      review.recipients,
-      resolved.companyRecipients
-    );
-    const allAssigned = review.recipients
-      .filter(recipientNeedsMarker)
-      .every((r) => r.marker);
-    if (
-      !allAssigned &&
-      (review.status === "awaiting_markers" || review.status === "reviewed")
-    ) {
-      review.status = "reviewed";
-    }
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return { review, bandLabel: resolved.bandLabel };
-  }
   // BE trả review PHẲNG kèm `bandLabel` (`{...review, bandLabel}`), không phải
-  // `{review, bandLabel}` như nhánh mock. Không tách ra ở đây thì nơi gọi
-  // destructure `{ review }` sẽ nhận undefined và vỡ ở dòng ngay sau.
+  // `{review, bandLabel}`. Không tách ra ở đây thì nơi gọi destructure
+  // `{ review }` sẽ nhận undefined và vỡ ở dòng ngay sau.
   const body = (await api.post(
     `/api/v1/reviews/${id}/apply-signing-matrix`,
     {}
@@ -1714,75 +827,6 @@ export async function reuploadSubmit(
         location: "File phải là .docx",
       },
     ]);
-  }
-
-  if (USE_MOCK) {
-    await delay(600);
-    const review = getReview(contractId);
-    if (!review) throw new Error("Not found");
-
-    const previousUrl =
-      review.reviewedDocxUrl ||
-      review.originalDocxUrl ||
-      resolveTemplateUrlForContractType(review.contractTypeId);
-    const templateUrl = resolveTemplateUrlForContractType(review.contractTypeId);
-
-    const [templateBytes, previousBytes, newlyBytes] = await Promise.all([
-      fetchDocxBytes(templateUrl),
-      fetchDocxBytes(previousUrl),
-      file.arrayBuffer(),
-    ]);
-
-    const validation: ReuploadValidationResult =
-      await validateReuploadFromBuffers({
-        contractTypeId: review.contractTypeId,
-        templateBytes,
-        previousBytes,
-        newlyBytes,
-        currentVersion: review.version,
-        templateFileName: templateUrl.split("/").pop(),
-        previousFileName: previousUrl.split("/").pop(),
-        newlyFileName: file.name,
-      });
-
-    if (!validation.isValid) {
-      throw new ReuploadValidationError(validation.issues);
-    }
-
-    const blobUrl = URL.createObjectURL(file);
-
-    review.fileName = file.name;
-    review.fileNames = [file.name];
-    review.originalDocxUrl = blobUrl;
-    review.reviewedDocxUrl = blobUrl;
-    review.attachments = buildAttachments({
-      fileName: file.name,
-      fileNames: [file.name],
-      originalDocxUrl: blobUrl,
-      reviewedDocxUrl: blobUrl,
-    });
-    const session = getSession();
-    const entry = pushVersionEntry(review, "reupload", {
-      role: "purchasing",
-      name: session?.name || review.ownerName,
-    });
-    review.proposals = [];
-    review.messages = [
-      {
-        id: `m_reupload_${Date.now()}`,
-        role: "assistant",
-        content: `Đã nhận file upload lại (v${entry.version}). Hệ thống coi đây là vòng review MỚI — đang đưa vào Processing Queue để chạy lại AI Review Engine. Các đề xuất/chat của phiên bản trước không được áp dụng tự động.`,
-        createdAt: new Date().toISOString(),
-      },
-    ];
-    review.feedback = [];
-    review.status = "queued";
-    review.queuePosition = 1;
-    review.confidence = 0;
-    review.contractInsight = emptyContractInsight(review.id, review.title);
-    review.updatedAt = new Date().toISOString();
-    upsertReview(review);
-    return review;
   }
 
   // Backend kiểm hai lớp và CHẶN CỨNG nếu lệch (ràng buộc C-4). Không gửi kèm

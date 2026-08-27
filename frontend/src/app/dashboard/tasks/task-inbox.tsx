@@ -44,7 +44,7 @@ import {
   managerDecide,
 } from "@/lib/review-service";
 import { canSuggestEdits } from "@/lib/roles";
-import { displayFullName, subordinateIds } from "@/lib/user-store";
+import { displayFullName } from "@/lib/user-store";
 import type {
   ContractReview,
   ContractTypeConfig,
@@ -188,29 +188,23 @@ export default function TaskInboxPage() {
     [reviews, isLegalApprover]
   );
 
-  /** Task Manager: pending_manager của subordinate (IT demo: mọi pending_manager). */
+  /**
+   * Task Manager: các ticket đang chờ mình duyệt.
+   *
+   * Không lọc theo cấp dưới ở đây nữa: `GET /api/v1/reviews` đã trả đúng phạm
+   * vi của người gọi theo Line Manager (quy tắc A5, enforce server-side).
+   */
   const managerTasks = useMemo(() => {
     if (!isManager || !session?.userId) return [];
-    if (isIt) {
-      return reviews.filter((r) => r.status === "pending_manager");
-    }
-    const subs = new Set(subordinateIds(session.userId));
-    return reviews.filter(
-      (r) =>
-        r.status === "pending_manager" &&
-        r.ownerId &&
-        subs.has(r.ownerId)
-    );
-  }, [reviews, isManager, isIt, session]);
+    return reviews.filter((r) => r.status === "pending_manager");
+  }, [reviews, isManager, session]);
 
   /** Task Purchasing: rejected + chờ gán chữ ký sau Legal (IT demo: mọi ticket). */
   const purchasingTasks = useMemo(() => {
     if (!isPurchasing || !session?.userId) return [];
-    const isOwner = (r: (typeof reviews)[0]) =>
-      r.ownerId === session.userId ||
-      (!r.ownerId &&
-        (r.ownerName.includes(session.name) ||
-          r.ownerName.includes(session.username)));
+    // Backend luôn trả `ownerId`; so khớp theo tên là di sản thời mock và sẽ
+    // gom nhầm những người trùng tên.
+    const isOwner = (r: (typeof reviews)[0]) => r.ownerId === session.userId;
     if (isIt) {
       return reviews.filter(
         (r) => r.status === "rejected" || r.status === "pending_markers"
@@ -328,11 +322,8 @@ export default function TaskInboxPage() {
               chi tiết và duyệt / xử lý.
               {isIt && (
                 <span className="block mt-1 text-amber-700">
-                  Demo IT: đang hiển thị mọi hàng chờ (Legal / Manager /
-                  Purchasing). Tài khoản thật:{" "}
-                  <code className="text-xs">legal</code>,{" "}
-                  <code className="text-xs">manager.pur</code>,{" "}
-                  <code className="text-xs">van.a</code> / demo123.
+                  Vai trò IT: đang hiển thị mọi hàng chờ (Legal / Manager /
+                  Purchasing).
                 </span>
               )}
             </p>
@@ -340,12 +331,8 @@ export default function TaskInboxPage() {
 
           {totalTasks === 0 && (
             <Card>
-              <CardContent className="py-12 text-center text-sm text-muted-foreground space-y-2">
+              <CardContent className="py-12 text-center text-sm text-muted-foreground">
                 <p>Bạn không có task nào cần xử lý.</p>
-                <p className="text-xs">
-                  Thử đăng nhập <code>legal</code> / <code>manager.pur</code> /{" "}
-                  <code>van.a</code> (mk: demo123) để thấy task giả lập.
-                </p>
               </CardContent>
             </Card>
           )}
@@ -601,7 +588,6 @@ export default function TaskInboxPage() {
                       if (!href) return null;
                       // Endpoint file của backend kiểm quyền bằng Bearer token;
                       // `<a href>` trần không gửi được header nên luôn 401.
-                      // Chỉ `/samples/*` (mock) là file tĩnh tải thẳng được.
                       const needsAuth = href.startsWith("/api/");
                       return (
                         <li key={att.id}>

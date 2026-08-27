@@ -1,9 +1,9 @@
 /**
  * System prompts — client service.
- * File I/O nằm ở backend; FE chỉ gọi API (hoặc mock khi USE_MOCK).
+ * File I/O nằm ở backend; FE chỉ gọi API.
  */
 
-import { api, USE_MOCK } from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   PIPELINE_STAGES,
   STAGE_PLACEHOLDERS,
@@ -30,13 +30,6 @@ export interface SystemPromptSnapshot {
   error?: string;
 }
 
-const MOCK_PROMPTS: SystemPromptSnapshot[] = PIPELINE_STAGES.map((stage) => ({
-  stage,
-  fileName: "v1.md",
-  content: `{{/* Mock system prompt — ${stage} */}}\n\nChỉnh sửa prompts thật khi chạy backend (GET/PUT /api/system-prompts).\n`,
-  placeholders: STAGE_PLACEHOLDERS[stage],
-}));
-
 function withPlaceholders(
   raw: Omit<SystemPromptSnapshot, "placeholders"> & {
     placeholders?: readonly string[];
@@ -49,9 +42,6 @@ function withPlaceholders(
 }
 
 export async function fetchSystemPrompts(): Promise<SystemPromptSnapshot[]> {
-  if (USE_MOCK) {
-    return MOCK_PROMPTS.map((p) => ({ ...p, content: p.content }));
-  }
   const data = (await api.get("/api/v1/system-prompts")) as {
     prompts: (Omit<SystemPromptSnapshot, "placeholders"> & {
       placeholders?: readonly string[];
@@ -64,12 +54,6 @@ export async function updateSystemPrompt(
   stage: PipelineStage,
   content: string
 ): Promise<SystemPromptSnapshot> {
-  if (USE_MOCK) {
-    const found = MOCK_PROMPTS.find((p) => p.stage === stage);
-    if (!found) throw new Error(`Unknown stage: ${stage}`);
-    found.content = content;
-    return { ...found };
-  }
   const data = (await api.put("/api/v1/system-prompts", { stage, content })) as {
     prompt: Omit<SystemPromptSnapshot, "placeholders"> & {
       placeholders?: readonly string[];

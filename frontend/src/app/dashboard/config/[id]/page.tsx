@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import AppLayout from "@/components/layout/app-layout";
@@ -47,13 +47,11 @@ import {
 import {
   AlertTriangle,
   ArrowLeft,
-  Download,
   FileText,
   Loader2,
   Plus,
   Save,
   Trash2,
-  Upload,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -89,7 +87,6 @@ export default function ConfigDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { toast } = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
   const perm = getConfigPermission();
 
   const [config, setConfig] = useState<ContractTypeConfigVersion | null>(null);
@@ -100,6 +97,8 @@ export default function ConfigDetailPage() {
   const [editing, setEditing] = useState<ChecklistClause | null>(null);
   const [isNewClause, setIsNewClause] = useState(false);
   const [parentClauseCount, setParentClauseCount] = useState(0);
+  /** Điều khoản của checklist cha — dùng để tránh trùng mã khi soạn overlay con. */
+  const [parentClauses, setParentClauses] = useState<ChecklistClause[]>([]);
   const [mergedClauseCount, setMergedClauseCount] = useState(0);
 
   const refresh = useCallback(async () => {
@@ -108,11 +107,13 @@ export default function ConfigDetailPage() {
     setConfig(c);
     setAudit(a.filter((x) => x.contractTypeId === c.contractTypeId));
     if (isParentConfig(c)) {
+      setParentClauses([]);
       setParentClauseCount(c.clauses.length);
       setMergedClauseCount(c.clauses.length);
     } else {
-      const parent = findConfigByBusinessKey(c.parentCategoryId);
+      const parent = await findConfigByBusinessKey(c.parentCategoryId);
       const merged = mergeParentAndChildConfig(parent, c);
+      setParentClauses(parent?.clauses || []);
       setParentClauseCount(merged.parentClauseCount);
       setMergedClauseCount(merged.clauses.length);
     }
@@ -137,9 +138,7 @@ export default function ConfigDetailPage() {
   const openNewClause = () => {
     if (!config) return;
     // Tránh trùng mã với checklist cha khi đang soạn overlay con
-    const parentCodes = !isParentConfig(config)
-      ? findConfigByBusinessKey(config.parentCategoryId)?.clauses || []
-      : [];
+    const parentCodes = isParentConfig(config) ? [] : parentClauses;
     const code = nextClauseCode([...parentCodes, ...config.clauses]);
     const sortOrder =
       config.clauses.reduce((m, c) => Math.max(m, c.sortOrder), 0) + 1;
@@ -162,9 +161,7 @@ export default function ConfigDetailPage() {
     }
     setSaving(true);
     try {
-      const parentCodes = !isParentConfig(config)
-        ? findConfigByBusinessKey(config.parentCategoryId)?.clauses || []
-        : [];
+      const parentCodes = isParentConfig(config) ? [] : parentClauses;
       const payload: ChecklistClause = {
         ...editing,
         code: isNewClause
@@ -529,68 +526,18 @@ export default function ConfigDetailPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-dashed bg-slate-50/80 p-6 flex flex-col sm:flex-row sm:items-center gap-4">
-                  <div className="flex items-start gap-3 flex-1 min-w-0">
-                    <FileText className="h-9 w-9 text-sky-700 shrink-0 mt-0.5" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {config.templateFileName || "Chưa gắn file template"}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Demo: dùng mẫu{" "}
-                        <code className="text-[11px]">
-                          /samples/Template_HDDV_chung_2026.docx
-                        </code>{" "}
-                        để preview.
-                      </p>
-                    </div>
+                <div className="rounded-xl border border-dashed bg-slate-50/80 p-6 flex items-start gap-3">
+                  <FileText className="h-9 w-9 text-sky-700 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {config.templateFileName || "Chưa gắn file template"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Template do Legal ban hành. Đăng ký và gắn file tại
+                      Configurations → Templates — ở đó file được lint vùng
+                      mở/khoá trước khi lưu.
+                    </p>
                   </div>
-                  <div className="flex flex-wrap gap-2 shrink-0">
-                    {canEdit && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => fileRef.current?.click()}
-                      >
-                        <Upload className="h-4 w-4 mr-1" />
-                        Upload .docx
-                      </Button>
-                    )}
-                    <Button type="button" variant="outline" size="sm" asChild>
-                      <a
-                        href="/samples/Template_HDDV_chung_2026.docx"
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <Download className="h-4 w-4 mr-1" />
-                        Tải mẫu demo
-                      </a>
-                    </Button>
-                  </div>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f || !config) return;
-                      if (!f.name.toLowerCase().endsWith(".docx")) {
-                        toast({
-                          title: "Chỉ nhận file .docx",
-                          variant: "destructive",
-                        });
-                        return;
-                      }
-                      setConfig({ ...config, templateFileName: f.name });
-                      toast({
-                        title: "Đã gắn template (mock)",
-                        description: f.name,
-                      });
-                      e.target.value = "";
-                    }}
-                  />
                 </div>
 
                 {canEdit && (

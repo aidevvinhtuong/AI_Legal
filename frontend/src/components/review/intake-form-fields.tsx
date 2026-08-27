@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -15,7 +14,6 @@ import type {
   ContractNameOption,
   DiscountOption,
 } from "@/lib/form-lists-store";
-import { peekDocumentNumber } from "@/lib/document-number";
 import type {
   ContractTypeConfig,
   DiscountFlag,
@@ -23,11 +21,6 @@ import type {
   DocumentIntakeMeta,
 } from "@/lib/types";
 import { AlertTriangle, Calendar } from "lucide-react";
-
-const DEFAULT_DISCOUNT_OPTIONS: DiscountOption[] = [
-  { value: "yes", label: "Có" },
-  { value: "no", label: "Không" },
-];
 
 function RequiredMark() {
   return <span className="text-destructive ml-0.5">*</span>;
@@ -125,13 +118,11 @@ export function IntakeFormFields({
   onChange,
   categories,
   types,
-  discountOptions = DEFAULT_DISCOUNT_OPTIONS,
+  discountOptions = [],
   businessEntities = [],
   contractBases = [],
   contractNames = [],
   disabled,
-  /** true = preview số tiếp theo khi chọn Công ty + Loại HĐ (form tạo mới). */
-  autoDocumentNumber = false,
 }: {
   value: IntakeFormValue;
   onChange: (next: IntakeFormValue) => void;
@@ -142,7 +133,6 @@ export function IntakeFormFields({
   contractBases?: CodeLabelOption[];
   contractNames?: ContractNameOption[];
   disabled?: boolean;
-  autoDocumentNumber?: boolean;
 }) {
   const selectedType = types.find((t) => t.id === value.contractTypeId);
   const filteredContractNames = value.documentCategoryId
@@ -155,27 +145,6 @@ export function IntakeFormFields({
 
   const patch = (partial: Partial<IntakeFormValue>) =>
     onChange({ ...value, ...partial });
-
-  useEffect(() => {
-    if (!autoDocumentNumber || disabled) return;
-    const entity = businessEntities.find((e) => e.id === value.businessEntityId);
-    const category = categories.find((c) => c.id === value.documentCategoryId);
-    const preview =
-      entity && category
-        ? peekDocumentNumber(entity.code, category.code)
-        : "";
-    if (preview !== value.documentNumber) {
-      onChange({ ...value, documentNumber: preview });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ sync khi đổi Công ty / Loại HĐ / danh mục
-  }, [
-    autoDocumentNumber,
-    disabled,
-    value.businessEntityId,
-    value.documentCategoryId,
-    businessEntities,
-    categories,
-  ]);
 
   return (
     <>
@@ -291,7 +260,7 @@ export function IntakeFormFields({
           <Input
             value={value.documentNumber}
             readOnly
-            placeholder="Chọn Công ty + Loại hợp đồng để sinh số"
+            placeholder="Hệ thống cấp khi lưu tài liệu"
             disabled={disabled}
             className="bg-muted/40"
           />

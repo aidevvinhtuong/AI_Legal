@@ -264,7 +264,6 @@ export default function NewReviewPage() {
               businessEntities={businessEntities}
               contractBases={contractBases}
               contractNames={contractNames}
-              autoDocumentNumber
             />
 
             <div className="space-y-2">
